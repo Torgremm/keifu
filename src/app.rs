@@ -377,7 +377,10 @@ impl App {
         }
 
         // Clear search state on refresh to avoid stale indices
-        self.search_state = SearchState::default();
+        // Skip if in search mode to prevent clearing active search results
+        if !self.is_in_search_mode() {
+            self.search_state = SearchState::default();
+        }
 
         // Clamp the selection
         let max_commit = self.graph_layout.nodes.len().saturating_sub(1);
@@ -432,6 +435,17 @@ impl App {
     /// Get current dropdown selection index
     pub fn search_selection(&self) -> Option<usize> {
         self.search_state.dropdown_selection
+    }
+
+    /// Check if currently in search input mode
+    pub fn is_in_search_mode(&self) -> bool {
+        matches!(
+            &self.mode,
+            AppMode::Input {
+                action: InputAction::Search,
+                ..
+            }
+        )
     }
 
     /// Jump to the currently checked out branch (HEAD)

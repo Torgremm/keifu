@@ -2,6 +2,7 @@
 
 pub mod commit_detail;
 pub mod dialog;
+pub mod diff_popup;
 pub mod graph_view;
 pub mod help_popup;
 pub mod search_dropdown;
@@ -15,7 +16,10 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, AppMode, InputAction};
+use crate::{
+    app::{App, AppMode, InputAction},
+    ui::diff_popup::{DiffView, DiffViewState},
+};
 
 use self::{
     commit_detail::CommitDetailWidget,
@@ -96,6 +100,14 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         AppMode::Help => {
             let popup_area = centered_rect(60, 70, area);
             frame.render_widget(HelpPopup, popup_area);
+        }
+        AppMode::Inspect => {
+            let popup_area = centered_rect(60, 70, area);
+            let mut state = app.diff_view_state.clone();
+            let view = DiffView {
+                diff: app.inspect_patch.as_ref(),
+            };
+            frame.render_stateful_widget(view, popup_area, &mut state);
         }
         AppMode::Input {
             input,

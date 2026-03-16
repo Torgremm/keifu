@@ -7,6 +7,7 @@ use crate::app::AppMode;
 
 pub fn map_key_to_action(key: KeyEvent, mode: &AppMode) -> Option<Action> {
     match mode {
+        AppMode::Inspect => map_normal_mode(key),
         AppMode::Normal => map_normal_mode(key),
         AppMode::Help => map_help_mode(key),
         AppMode::Input { action, .. } => {
@@ -30,6 +31,8 @@ fn map_normal_mode(key: KeyEvent) -> Option<Action> {
         (KeyModifiers::NONE, KeyCode::Char('k')) | (KeyModifiers::NONE, KeyCode::Up) => {
             Some(Action::MoveUp)
         }
+        (KeyModifiers::CONTROL, KeyCode::Char('i')) => Some(Action::Inspect),
+        (KeyModifiers::CONTROL, KeyCode::Char('o')) => Some(Action::ExitInspect),
 
         // Page scroll
         (KeyModifiers::CONTROL, KeyCode::Char('d')) => Some(Action::PageDown),

@@ -4,6 +4,10 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use git2::{Delta, Diff, DiffOptions, Oid, Repository};
+use ratatui::{
+    style::{Color, Style},
+    text::{Line, Span},
+};
 
 /// Maximum number of files to display
 const MAX_FILES_TO_DISPLAY: usize = 50;
@@ -190,6 +194,57 @@ impl CommitDiffInfo {
             total_deletions,
             total_files,
             truncated,
+        })
+    }
+}
+
+pub struct FilePatch {
+    pub path: PathBuf,
+    pub lines: Vec<ratatui::text::Line<'static>>,
+}
+
+impl FilePatch {
+    pub fn extract_diff(repo: &Repository, commit_oid: Oid, path: &PathBuf) -> Result<Self> {
+        let commit = repo.find_commit(commit_oid)?;
+        let new_tree = commit.tree()?;
+
+        let old_tree = if commit.parent_count() > 0 {
+            Some(commit.parent(0)?.tree()?)
+        } else {
+            None
+        };
+
+        let diff = repo.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), None)?;
+
+        let mut lines: Vec<Line<'static>> = Vec::new();
+
+        diff.foreach(
+            &mut |delta, _| {
+                let file_path = delta.new_file().path().or(delta.old_file().path());
+                file_path == Some(path.as_path())
+            },
+            None,
+            None,
+            Some(&mut |_delta, _hunk, line| {
+                let content = std::str::from_utf8(line.content()).unwrap_or("");
+
+                let style = match line.origin() {
+                    '+' => Style::default().fg(Color::Green),
+                    '-' => Style::default().fg(Color::Red),
+                    _ => Style::default(),
+                };
+
+                lines.push(Line::from(Span::styled(
+                    format!("{}{}", line.origin(), content),
+                    style,
+                )));
+
+                true
+            }),
+        )?;
+        Ok(FilePatch {
+            path: path.clone(),
+            lines,
         })
     }
 }

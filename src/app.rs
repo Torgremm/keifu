@@ -1,5 +1,6 @@
 //! Application state management
 
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::Instant;
@@ -9,6 +10,8 @@ use ratatui::widgets::ListState;
 
 use git2::Oid;
 
+use crate::git::diff::FilePatch;
+use crate::ui::diff_popup::DiffViewState;
 use crate::{
     action::Action,
     config::Config,
@@ -52,6 +55,7 @@ fn filter_remote_duplicates(branch_names: &[String]) -> Vec<&str> {
 #[derive(Debug, Clone)]
 pub enum AppMode {
     Normal,
+    Inspect,
     Help,
     Input {
         title: String,
@@ -176,6 +180,9 @@ pub struct App {
     diff_loading_oid: Option<Oid>,
     diff_receiver: Option<Receiver<DiffResult>>,
 
+    pub inspect_patch: Option<FilePatch>,
+    pub diff_view_state: DiffViewState,
+
     // Uncommitted diff cache
     uncommitted_diff_cache: Option<CommitDiffInfo>,
     uncommitted_diff_loading: bool,
@@ -268,6 +275,11 @@ impl App {
             config,
             last_refresh_time: now,
             last_fetch_time: now,
+            inspect_patch: None,
+            diff_view_state: DiffViewState {
+                scroll: 0,
+                file_index: 0,
+            },
         })
     }
 
@@ -288,6 +300,15 @@ impl App {
         self.uncommitted_cache_key = None;
     }
 
+    pub fn inspect_file(&mut self, commit_oid: Oid, path: &PathBuf) -> anyhow::Result<()> {
+        let patch = FilePatch::extract_diff(&self.repo.repo, commit_oid, path)?;
+        self.inspect_patch = Some(patch);
+
+        self.diff_view_state.scroll = 0;
+        self.diff_view_state.file_index = 0;
+
+        Ok(())
+    }
     /// Refresh repository data
     /// If `force` is true, always clears diff cache (for manual refresh)
     /// If `force` is false, keeps cache when the same content is selected (for auto-refresh)
@@ -705,6 +726,7 @@ impl App {
     pub fn handle_action(&mut self, action: Action) -> Result<()> {
         match &self.mode {
             AppMode::Normal => self.handle_normal_action(action)?,
+            AppMode::Inspect => self.handle_normal_action(action)?,
             AppMode::Help => self.handle_help_action(action),
             AppMode::Input { .. } => self.handle_input_action(action)?,
             AppMode::Confirm { .. } => self.handle_confirm_action(action)?,
@@ -720,6 +742,12 @@ impl App {
 
     fn handle_normal_action(&mut self, action: Action) -> Result<()> {
         match action {
+            Action::Inspect => {
+                self.inspect_selection();
+            }
+            Action::ExitInspect => {
+                self.clear_modes();
+            }
             Action::Quit => {
                 self.should_quit = true;
             }
@@ -970,6 +998,20 @@ impl App {
         }
         Ok(())
     }
+
+    fn inspect_selection(&mut self) {
+        let Some(diff) = self.cached_diff() else {
+            return;
+        };
+
+        let Some(file) = diff.files.first() else {
+            return;
+        };
+
+        self.mode = AppMode::Inspect;
+    }
+
+    fn clear_modes(&mut self) {}
 
     fn move_selection(&mut self, delta: i32) {
         let max = self.graph_layout.nodes.len().saturating_sub(1);

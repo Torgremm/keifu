@@ -132,6 +132,12 @@ impl<'a> Widget for StatusBar<'a> {
                     spans.push(Span::styled("quit", desc_style));
                 }
             },
+            AppMode::Inspect => {
+                spans.push(Span::styled(" j/k ", key_style));
+                spans.push(Span::styled("move ", desc_style));
+                spans.push(Span::styled("Esc", key_style));
+                spans.push(Span::styled("Close diff", desc_style));
+            }
             AppMode::Help => {
                 spans.push(Span::styled(" Esc/q ", key_style));
                 spans.push(Span::styled("close help", desc_style));
@@ -169,6 +175,7 @@ impl<'a> Widget for StatusBar<'a> {
         // Show the mode on the right (only for non-Normal modes)
         let mode_text = match self.mode {
             AppMode::Normal => None,
+            AppMode::Inspect => Some(" DIFF "),
             AppMode::Help => Some(" HELP "),
             AppMode::Input { .. } => Some(" INPUT "),
             AppMode::Confirm { .. } => Some(" CONFIRM "),

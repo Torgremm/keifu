@@ -40,4 +40,7 @@ pub enum Action {
     SearchSelectDown,
     SearchSelectUpQuiet,   // Tab navigation (no graph jump)
     SearchSelectDownQuiet, // Tab navigation (no graph jump)
+
+    Inspect,
+    ExitInspect,
 }

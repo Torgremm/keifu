@@ -1,13 +1,15 @@
 //! Keybindings
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+#[cfg(windows)]
+use crossterm::event::KeyEventKind;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::action::Action;
 use crate::app::AppMode;
 
 pub fn map_key_to_action(key: KeyEvent, mode: &AppMode) -> Option<Action> {
     #[cfg(windows)]
-    if key.kind == KeyEventKind::Release {
+    if key.kind != KeyEventKind::Press {
         return None;
     }
     match mode {

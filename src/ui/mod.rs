@@ -84,11 +84,19 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     let detail_area = content_vertical[1];
 
     // Render widgets
-    frame.render_stateful_widget(
-        GraphViewWidget::new(app, graph_area.width),
-        graph_area,
-        &mut app.graph_list_state,
-    );
+    if app.mode == AppMode::Inspect {
+        frame.render_stateful_widget(
+            DiffView::new(app),
+            graph_area,
+            &mut DiffViewState::default(),
+        );
+    } else {
+        frame.render_stateful_widget(
+            GraphViewWidget::new(app, graph_area.width),
+            graph_area,
+            &mut app.graph_list_state,
+        );
+    }
     frame.render_widget(CommitDetailWidget::new(app), detail_area);
     frame.render_widget(StatusBar::new(app), status_area);
 
@@ -100,14 +108,6 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         AppMode::Help => {
             let popup_area = centered_rect(60, 70, area);
             frame.render_widget(HelpPopup, popup_area);
-        }
-        AppMode::Inspect => {
-            let popup_area = centered_rect(60, 70, area);
-            let mut state = app.diff_view_state.clone();
-            let view = DiffView {
-                diff: app.inspect_patch.as_ref(),
-            };
-            frame.render_stateful_widget(view, popup_area, &mut state);
         }
         AppMode::Input {
             input,

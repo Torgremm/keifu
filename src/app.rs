@@ -52,7 +52,7 @@ fn filter_remote_duplicates(branch_names: &[String]) -> Vec<&str> {
 }
 
 /// Application modes
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AppMode {
     Normal,
     Inspect,
@@ -79,7 +79,7 @@ pub enum InputAction {
 }
 
 /// Confirmation action kinds
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ConfirmAction {
     DeleteBranch(String),
     Merge(String),
@@ -300,8 +300,9 @@ impl App {
         self.uncommitted_cache_key = None;
     }
 
-    pub fn inspect_file(&mut self, commit_oid: Oid, path: &PathBuf) -> anyhow::Result<()> {
-        let patch = FilePatch::extract_diff(&self.repo.repo, commit_oid, path)?;
+    pub fn inspect_file(&mut self, index: u16) -> anyhow::Result<()> {
+        let commit = self.selected_commit_node().unwrap();
+        let patch = FilePatch::extract_diff(&self.repo.repo, commit, index)?;
         self.inspect_patch = Some(patch);
 
         self.diff_view_state.scroll = 0;
@@ -726,7 +727,7 @@ impl App {
     pub fn handle_action(&mut self, action: Action) -> Result<()> {
         match &self.mode {
             AppMode::Normal => self.handle_normal_action(action)?,
-            AppMode::Inspect => self.handle_normal_action(action)?,
+            AppMode::Inspect => self.handle_inspect_action(action)?,
             AppMode::Help => self.handle_help_action(action),
             AppMode::Input { .. } => self.handle_input_action(action)?,
             AppMode::Confirm { .. } => self.handle_confirm_action(action)?,
@@ -740,13 +741,32 @@ impl App {
         self.mode = AppMode::Error { message };
     }
 
+    fn handle_inspect_action(&mut self, action: Action) -> Result<()> {
+        match action {
+            Action::ExitInspect | Action::Quit => {
+                self.clear_modes();
+            }
+            Action::MoveUp => {
+                self.diff_view_state.scroll(-1);
+            }
+            Action::MoveDown => {
+                self.diff_view_state.scroll(1);
+            }
+            Action::PageUp => {
+                self.diff_view_state.scroll(-10);
+            }
+            Action::PageDown => {
+                self.diff_view_state.scroll(10);
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
     fn handle_normal_action(&mut self, action: Action) -> Result<()> {
         match action {
             Action::Inspect => {
                 self.inspect_selection();
-            }
-            Action::ExitInspect => {
-                self.clear_modes();
             }
             Action::Quit => {
                 self.should_quit = true;
@@ -1000,18 +1020,12 @@ impl App {
     }
 
     fn inspect_selection(&mut self) {
-        let Some(diff) = self.cached_diff() else {
-            return;
-        };
-
-        let Some(file) = diff.files.first() else {
-            return;
-        };
-
         self.mode = AppMode::Inspect;
     }
 
-    fn clear_modes(&mut self) {}
+    fn clear_modes(&mut self) {
+        self.mode = AppMode::Normal;
+    }
 
     fn move_selection(&mut self, delta: i32) {
         let max = self.graph_layout.nodes.len().saturating_sub(1);

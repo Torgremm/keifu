@@ -7,7 +7,7 @@ use crate::app::AppMode;
 
 pub fn map_key_to_action(key: KeyEvent, mode: &AppMode) -> Option<Action> {
     match mode {
-        AppMode::Inspect => map_normal_mode(key),
+        AppMode::Inspect => map_inspect_mode(key),
         AppMode::Normal => map_normal_mode(key),
         AppMode::Help => map_help_mode(key),
         AppMode::Input { action, .. } => {
@@ -22,6 +22,15 @@ pub fn map_key_to_action(key: KeyEvent, mode: &AppMode) -> Option<Action> {
     }
 }
 
+fn map_inspect_mode(key: KeyEvent) -> Option<Action> {
+    match key.code {
+        KeyCode::Char('j') => Some(Action::MoveDown),
+        KeyCode::Char('k') => Some(Action::MoveUp),
+        KeyCode::Esc => Some(Action::ExitInspect),
+        _ => None,
+    }
+}
+
 fn map_normal_mode(key: KeyEvent) -> Option<Action> {
     match (key.modifiers, key.code) {
         // Movement
@@ -31,8 +40,7 @@ fn map_normal_mode(key: KeyEvent) -> Option<Action> {
         (KeyModifiers::NONE, KeyCode::Char('k')) | (KeyModifiers::NONE, KeyCode::Up) => {
             Some(Action::MoveUp)
         }
-        (KeyModifiers::CONTROL, KeyCode::Char('i')) => Some(Action::Inspect),
-        (KeyModifiers::CONTROL, KeyCode::Char('o')) => Some(Action::ExitInspect),
+        (_, KeyCode::Char('i')) => Some(Action::Inspect),
 
         // Page scroll
         (KeyModifiers::CONTROL, KeyCode::Char('d')) => Some(Action::PageDown),

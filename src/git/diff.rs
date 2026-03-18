@@ -2,12 +2,14 @@
 
 use std::path::PathBuf;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use git2::{Delta, Diff, DiffOptions, Oid, Repository};
 use ratatui::{
     style::{Color, Style},
     text::{Line, Span},
 };
+
+use crate::git::{graph::GraphNode, CommitInfo};
 
 /// Maximum number of files to display
 const MAX_FILES_TO_DISPLAY: usize = 50;
@@ -198,14 +200,18 @@ impl CommitDiffInfo {
     }
 }
 
+#[derive(Clone)]
 pub struct FilePatch {
     pub path: PathBuf,
     pub lines: Vec<ratatui::text::Line<'static>>,
 }
 
 impl FilePatch {
-    pub fn extract_diff(repo: &Repository, commit_oid: Oid, path: &PathBuf) -> Result<Self> {
-        let commit = repo.find_commit(commit_oid)?;
+    pub fn extract_diff(repo: &Repository, node: &GraphNode, index: u16) -> Result<Self> {
+        let Some(commit_info) = &node.commit else {
+            return Err(anyhow!("No commit selected"));
+        };
+        let commit = repo.find_commit(commit_info.oid)?;
         let new_tree = commit.tree()?;
 
         let old_tree = if commit.parent_count() > 0 {
@@ -217,11 +223,13 @@ impl FilePatch {
         let diff = repo.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), None)?;
 
         let mut lines: Vec<Line<'static>> = Vec::new();
+        let mut path = PathBuf::new();
 
         diff.foreach(
             &mut |delta, _| {
                 let file_path = delta.new_file().path().or(delta.old_file().path());
-                file_path == Some(path.as_path())
+                path = file_path.unwrap().to_path_buf();
+                true
             },
             None,
             None,

@@ -16,18 +16,22 @@ pub struct DiffViewState {
 
 impl DiffViewState {
     pub fn scroll(&mut self, delta: i16) {
-        if let Some(result) = self.scroll.checked_sub(delta as u16) {
-            self.scroll = result;
+        if delta < 0 {
+            self.scroll = self.scroll.saturating_sub(-delta as u16);
         } else {
-            self.scroll = 0;
+            self.scroll += delta as u16;
         }
     }
 
-    pub fn scroll_file(&mut self, delta: isize) {
-        if let Some(result) = self.file_index.checked_sub(delta as usize) {
-            self.file_index = result;
+    pub fn scroll_file(&mut self, delta: isize, max: usize) {
+        if delta < 0 {
+            self.file_index = self.file_index.saturating_sub(-delta as usize);
         } else {
-            self.file_index = 0;
+            if self.file_index + delta as usize >= max {
+                self.file_index = max;
+                return;
+            }
+            self.file_index += delta as usize;
         }
     }
 }
@@ -37,18 +41,14 @@ pub struct DiffView {
 }
 
 impl DiffView {
-    pub fn new(app: &mut App) -> Self {
-        let result = app.inspect_file(0).is_ok();
-        let diff = if result {
-            app.inspect_patch.clone()
-        } else {
-            None
-        };
-        Self { diff: diff }
+    pub fn new(app: &App) -> Self {
+        Self {
+            diff: app.inspect_patch.clone(),
+        }
     }
 }
 
-impl<'a> StatefulWidget for DiffView {
+impl StatefulWidget for DiffView {
     type State = DiffViewState;
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         let lines: Vec<Line> = if let Some(diff) = self.diff.as_ref() {
@@ -61,6 +61,8 @@ impl<'a> StatefulWidget for DiffView {
             .as_ref()
             .map(|patch| patch.path.to_string_lossy().into_owned())
             .unwrap_or_else(|| "Diff".to_string());
+
+        let title = format!("{} - {}", title, state.file_index);
 
         let paragraph = Paragraph::new(lines)
             .block(Block::default().borders(Borders::ALL).title(title.as_str()))

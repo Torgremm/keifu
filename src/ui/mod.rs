@@ -85,11 +85,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 
     // Render widgets
     if app.mode == AppMode::Inspect {
-        frame.render_stateful_widget(
-            DiffView::new(app),
-            graph_area,
-            &mut DiffViewState::default(),
-        );
+        frame.render_stateful_widget(DiffView::new(app), graph_area, &mut app.diff_view_state);
     } else {
         frame.render_stateful_widget(
             GraphViewWidget::new(app, graph_area.width),

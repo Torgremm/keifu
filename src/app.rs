@@ -1,6 +1,5 @@
 //! Application state management
 
-use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::Instant;
@@ -300,13 +299,17 @@ impl App {
         self.uncommitted_cache_key = None;
     }
 
-    pub fn inspect_file(&mut self, index: u16) -> anyhow::Result<()> {
-        let commit = self.selected_commit_node().unwrap();
-        let patch = FilePatch::extract_diff(&self.repo.repo, commit, index)?;
+    pub fn inspect_file(&mut self, index: usize) -> anyhow::Result<()> {
+        let Some(commit) = self.selected_commit_node() else {
+            return Err(anyhow::anyhow!("villainous edgecase"));
+        };
+        let Some(commit_info) = &self.diff_cache else {
+            return Err(anyhow::anyhow!("villainous edgecase"));
+        };
+        let patch = FilePatch::extract_diff(&self.repo.repo, commit, commit_info, index)?;
         self.inspect_patch = Some(patch);
 
         self.diff_view_state.scroll = 0;
-        self.diff_view_state.file_index = 0;
 
         Ok(())
     }
@@ -758,6 +761,20 @@ impl App {
             Action::PageDown => {
                 self.diff_view_state.scroll(10);
             }
+            Action::NextBranch => {
+                let Some(cache) = &self.diff_cache else {
+                    return Err(anyhow::anyhow!("Villainous edgecase"));
+                };
+                self.diff_view_state.scroll_file(1, cache.total_files - 1);
+                self.inspect_selection();
+            }
+            Action::PrevBranch => {
+                let Some(cache) = &self.diff_cache else {
+                    return Err(anyhow::anyhow!("Villainous edgecase"));
+                };
+                self.diff_view_state.scroll_file(-1, cache.total_files - 1);
+                self.inspect_selection();
+            }
             _ => {}
         }
         Ok(())
@@ -1021,10 +1038,15 @@ impl App {
 
     fn inspect_selection(&mut self) {
         self.mode = AppMode::Inspect;
+        if let Err(e) = self.inspect_file(self.diff_view_state.file_index) {
+            self.clear_modes();
+            self.show_error(format!("{}", e));
+        }
     }
 
     fn clear_modes(&mut self) {
         self.mode = AppMode::Normal;
+        self.diff_view_state = DiffViewState::default();
     }
 
     fn move_selection(&mut self, delta: i32) {

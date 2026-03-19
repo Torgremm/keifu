@@ -23,10 +23,14 @@ pub fn map_key_to_action(key: KeyEvent, mode: &AppMode) -> Option<Action> {
 }
 
 fn map_inspect_mode(key: KeyEvent) -> Option<Action> {
-    match key.code {
-        KeyCode::Char('j') => Some(Action::MoveDown),
-        KeyCode::Char('k') => Some(Action::MoveUp),
-        KeyCode::Esc => Some(Action::ExitInspect),
+    match (key.modifiers, key.code) {
+        (_, KeyCode::Char('j')) => Some(Action::MoveDown),
+        (_, KeyCode::Char('k')) => Some(Action::MoveUp),
+        (_, KeyCode::Char('[')) => Some(Action::PrevBranch),
+        (_, KeyCode::Char(']')) => Some(Action::NextBranch),
+        (KeyModifiers::CONTROL, KeyCode::Char('d')) => Some(Action::PageDown),
+        (KeyModifiers::CONTROL, KeyCode::Char('u')) => Some(Action::PageUp),
+        (_, KeyCode::Esc) => Some(Action::ExitInspect),
         _ => None,
     }
 }

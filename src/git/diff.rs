@@ -207,52 +207,61 @@ pub struct FilePatch {
 }
 
 impl FilePatch {
-    pub fn extract_diff(repo: &Repository, node: &GraphNode, index: u16) -> Result<Self> {
+    pub fn extract_diff(
+        repo: &Repository,
+        node: &GraphNode,
+        info: &CommitDiffInfo,
+        index: usize,
+    ) -> Result<Self> {
         let Some(commit_info) = &node.commit else {
             return Err(anyhow!("No commit selected"));
         };
+
+        let file_path = info
+            .files
+            .get(index)
+            .ok_or_else(|| anyhow!("Index {} out of bounds", index))?
+            .path
+            .clone();
+
         let commit = repo.find_commit(commit_info.oid)?;
         let new_tree = commit.tree()?;
-
         let old_tree = if commit.parent_count() > 0 {
             Some(commit.parent(0)?.tree()?)
         } else {
             None
         };
 
-        let diff = repo.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), None)?;
+        // Generate a diff only for the target file
+        let mut diff_opts = git2::DiffOptions::new();
+        diff_opts.pathspec(file_path.clone());
+        let diff =
+            repo.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut diff_opts))?;
 
-        let mut lines: Vec<Line<'static>> = Vec::new();
-        let mut path = PathBuf::new();
+        let mut selected_lines: Vec<Line<'static>> = Vec::new();
 
         diff.foreach(
-            &mut |delta, _| {
-                let file_path = delta.new_file().path().or(delta.old_file().path());
-                path = file_path.unwrap().to_path_buf();
-                true
-            },
+            &mut |_delta, _| true,
             None,
             None,
             Some(&mut |_delta, _hunk, line| {
                 let content = std::str::from_utf8(line.content()).unwrap_or("");
-
                 let style = match line.origin() {
                     '+' => Style::default().fg(Color::Green),
                     '-' => Style::default().fg(Color::Red),
                     _ => Style::default(),
                 };
-
-                lines.push(Line::from(Span::styled(
+                selected_lines.push(Line::from(Span::styled(
                     format!("{}{}", line.origin(), content),
                     style,
                 )));
-
                 true
             }),
         )?;
+
         Ok(FilePatch {
-            path: path.clone(),
-            lines,
+            path: file_path,
+            lines: selected_lines,
         })
     }
 }

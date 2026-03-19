@@ -4,7 +4,8 @@ use anyhow::Result;
 use clap::Parser;
 
 use keifu::{
-    app::App,
+    action::Action,
+    app::{App, AppMode},
     event::{get_key_event, poll_event},
     git::configure_git_extensions,
     keybindings::map_key_to_action,

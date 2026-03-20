@@ -90,12 +90,12 @@ fn test_linear_history() {
 
 #[test]
 fn test_unborn_repo_shows_uncommitted_node() {
-    let layout = build_graph(&[], &[], Some(1), None);
+    let layout = build_graph(&[], &[], Some(Some(1)), None);
 
     assert_eq!(layout.max_lane, 0);
     assert_eq!(layout.nodes.len(), 1);
     assert!(layout.nodes[0].is_uncommitted);
-    assert_eq!(layout.nodes[0].uncommitted_count, 1);
+    assert_eq!(layout.nodes[0].uncommitted_count, Some(1));
     assert_eq!(layout.nodes[0].lane, 0);
     assert!(matches!(
         layout.nodes[0].cells.first(),

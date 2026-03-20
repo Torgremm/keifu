@@ -65,7 +65,10 @@ impl<'a> CommitDetailWidget<'a> {
                 )),
                 Line::from(""),
                 Line::from(Span::styled(
-                    format!("{} files with changes", node.uncommitted_count),
+                    match node.uncommitted_count {
+                        Some(count) => format!("{} files with changes", count),
+                        None => "files with changes".to_string(),
+                    },
                     Style::default().fg(Color::DarkGray),
                 )),
             ];

@@ -194,6 +194,16 @@ impl WorkingTreeStatus {
         self.file_paths.len()
     }
 
+    /// Returns the exact file count when accurate, or None when untracked
+    /// directories were collapsed and the true count is unknown.
+    pub fn accurate_file_count(&self) -> Option<usize> {
+        if self.has_collapsed_untracked_dirs {
+            None
+        } else {
+            Some(self.file_paths.len())
+        }
+    }
+
     pub fn is_precise_cache_key(&self) -> bool {
         !self.has_collapsed_untracked_dirs
     }

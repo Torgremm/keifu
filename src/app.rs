@@ -378,6 +378,12 @@ impl App {
             .selected()
             .and_then(|idx| self.graph_layout.nodes.get(idx))
             .is_some_and(|node| node.is_uncommitted);
+        let prev_selected_commit_oid = self
+            .graph_list_state
+            .selected()
+            .and_then(|idx| self.graph_layout.nodes.get(idx))
+            .and_then(|node| node.commit.as_ref())
+            .map(|commit| commit.oid);
 
         let prev_branch_name = self
             .selected_branch_position
@@ -428,6 +434,12 @@ impl App {
                 if let Some((node_idx, _)) = self.branch_positions.get(pos) {
                     self.graph_list_state.select(Some(*node_idx));
                 }
+            } else if let Some(oid) = prev_selected_commit_oid {
+                let node_idx =
+                    self.graph_layout.nodes.iter().position(|node| {
+                        node.commit.as_ref().is_some_and(|commit| commit.oid == oid)
+                    });
+                self.graph_list_state.select(node_idx);
             }
         }
 
@@ -1240,8 +1252,11 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::path::Path;
+
     use chrono::Local;
-    use git2::{Oid, Repository};
+    use git2::{Oid, Repository, Signature};
     use tempfile::TempDir;
 
     use super::*;
@@ -1252,6 +1267,91 @@ mod tests {
         Repository::init(tempdir.path()).unwrap();
         let repo = GitRepository::open(tempdir.path()).unwrap();
         (tempdir, repo)
+    }
+
+    fn commit_file(repo: &Repository, path: &str, contents: &str, message: &str) -> Oid {
+        let workdir = repo.workdir().unwrap();
+        fs::write(workdir.join(path), contents).unwrap();
+
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new(path)).unwrap();
+        index.write().unwrap();
+        let tree_id = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_id).unwrap();
+        let signature = Signature::now("Test User", "test@example.com").unwrap();
+        let parent = repo.head().ok().and_then(|head| head.peel_to_commit().ok());
+        let parents = parent.iter().collect::<Vec<_>>();
+        let oid = repo
+            .commit(
+                Some("HEAD"),
+                &signature,
+                &signature,
+                message,
+                &tree,
+                &parents,
+            )
+            .unwrap();
+        drop(tree);
+        oid
+    }
+
+    fn make_app_from_repo(repo: GitRepository) -> App {
+        let now = Instant::now();
+        let commits = repo.get_commits(500).unwrap();
+        let branches = repo.get_branches().unwrap();
+        let (working_tree_status, initial_message) = App::working_tree_status_snapshot(&repo);
+        let initial_message_time = initial_message.as_ref().map(|_| now);
+        let uncommitted_count = working_tree_status.as_ref().map(|s| s.file_count());
+        let head_commit_oid = repo.head_oid();
+        let graph_layout = build_graph(&commits, &branches, uncommitted_count, head_commit_oid);
+
+        let mut graph_list_state = ListState::default();
+        graph_list_state.select(Some(0));
+
+        let branch_positions = App::build_branch_positions(&graph_layout);
+        let has_uncommitted_node = graph_layout
+            .nodes
+            .first()
+            .is_some_and(|node| node.is_uncommitted);
+        let selected_branch_position = if has_uncommitted_node || branch_positions.is_empty() {
+            None
+        } else {
+            Some(0)
+        };
+
+        App {
+            mode: AppMode::Normal,
+            repo,
+            repo_path: String::new(),
+            head_name: None,
+            commits,
+            branches,
+            graph_layout,
+            graph_list_state,
+            branch_positions,
+            selected_branch_position,
+            search_state: SearchState::default(),
+            working_tree_status,
+            diff_cache: None,
+            diff_cache_oid: None,
+            diff_loading_oid: None,
+            diff_receiver: None,
+            uncommitted_diff_cache: None,
+            uncommitted_diff_failed: false,
+            uncommitted_diff_loading: false,
+            uncommitted_diff_receiver: None,
+            uncommitted_cache_key: None,
+            selected_diff_target: None,
+            selected_diff_target_changed_at: now,
+            should_quit: false,
+            message: initial_message,
+            message_time: initial_message_time,
+            fetch_receiver: None,
+            fetch_silent: false,
+            config: Config::default(),
+            last_refresh_time: now,
+            last_fetch_time: now,
+        }
     }
 
     fn make_commit(oid: Oid) -> CommitInfo {
@@ -1413,5 +1513,46 @@ mod tests {
         assert!(!app.uncommitted_diff_loading);
         assert!(app.uncommitted_diff_receiver.is_none());
         assert_eq!(app.message.as_deref(), Some("Failed to load diff: boom"));
+    }
+
+    #[test]
+    fn refresh_restores_non_branch_selection_by_commit_oid_when_uncommitted_row_is_added() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let repo = Repository::init(tempdir.path()).unwrap();
+        let first_oid = commit_file(&repo, "tracked.txt", "first\n", "first");
+        let _second_oid = commit_file(&repo, "tracked.txt", "second\n", "second");
+
+        let git_repo = GitRepository::open(tempdir.path()).unwrap();
+        let mut app = make_app_from_repo(git_repo);
+
+        let first_node_idx = app
+            .graph_layout
+            .nodes
+            .iter()
+            .position(|node| {
+                node.commit
+                    .as_ref()
+                    .is_some_and(|commit| commit.oid == first_oid)
+            })
+            .unwrap();
+        app.graph_list_state.select(Some(first_node_idx));
+        app.sync_branch_selection_to_node(first_node_idx);
+
+        fs::write(tempdir.path().join("untracked.txt"), "hello\n").unwrap();
+        app.refresh(false).unwrap();
+
+        let selected_oid = app
+            .graph_list_state
+            .selected()
+            .and_then(|idx| app.graph_layout.nodes.get(idx))
+            .and_then(|node| node.commit.as_ref())
+            .map(|commit| commit.oid);
+
+        assert_eq!(selected_oid, Some(first_oid));
+        assert!(app
+            .graph_layout
+            .nodes
+            .first()
+            .is_some_and(|node| node.is_uncommitted));
     }
 }

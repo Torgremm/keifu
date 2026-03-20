@@ -231,10 +231,9 @@ fn working_tree_status_tracks_nested_untracked_file_changes() {
     let initial_status = git_repo.get_working_tree_status().unwrap().unwrap();
 
     assert_eq!(initial_status.file_count(), 1);
-    assert_eq!(
-        initial_status.file_paths,
-        vec!["dir/sub/file.txt".to_string()]
-    );
+    assert_eq!(initial_status.file_paths, vec!["dir/".to_string()]);
+    assert!(initial_status.has_collapsed_untracked_dirs);
+    assert!(!initial_status.is_precise_cache_key());
 
     thread::sleep(Duration::from_millis(1100));
     fs::write(&nested_path, "second version\nwith more content\n").unwrap();
@@ -242,11 +241,8 @@ fn working_tree_status_tracks_nested_untracked_file_changes() {
     let updated_status = git_repo.get_working_tree_status().unwrap().unwrap();
 
     assert_eq!(updated_status.file_count(), 1);
-    assert_eq!(
-        updated_status.file_paths,
-        vec!["dir/sub/file.txt".to_string()]
-    );
-    assert_ne!(updated_status.mtime_hash, initial_status.mtime_hash);
+    assert_eq!(updated_status.file_paths, vec!["dir/".to_string()]);
+    assert!(updated_status.has_collapsed_untracked_dirs);
 }
 
 #[test]

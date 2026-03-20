@@ -317,6 +317,25 @@ impl App {
         self.uncommitted_cache_key = None;
     }
 
+    fn can_reuse_uncommitted_cache(
+        &self,
+        was_uncommitted_selected: bool,
+        has_uncommitted_node: bool,
+    ) -> bool {
+        let Some(cache_key) = self.uncommitted_cache_key.as_ref() else {
+            return false;
+        };
+        let Some(current_status) = self.working_tree_status.as_ref() else {
+            return false;
+        };
+
+        was_uncommitted_selected
+            && has_uncommitted_node
+            && cache_key.is_precise_cache_key()
+            && current_status.is_precise_cache_key()
+            && cache_key == current_status
+    }
+
     fn current_diff_target(&self) -> Option<DiffTarget> {
         let node = self
             .graph_list_state
@@ -466,9 +485,7 @@ impl App {
             // Keep uncommitted diff cache only if:
             // 1. Uncommitted node is still selected (was_uncommitted_selected && has_uncommitted_node)
             // 2. The working tree status hasn't changed (same files and mtimes)
-            let uncommitted_still_selected = was_uncommitted_selected && has_uncommitted_node;
-            if !uncommitted_still_selected || self.uncommitted_cache_key != self.working_tree_status
-            {
+            if !self.can_reuse_uncommitted_cache(was_uncommitted_selected, has_uncommitted_node) {
                 self.clear_uncommitted_diff_cache();
             }
         }
@@ -1446,6 +1463,7 @@ mod tests {
         let wts = WorkingTreeStatus {
             file_paths: vec!["tracked.txt".to_string()],
             mtime_hash: 1,
+            has_collapsed_untracked_dirs: false,
         };
         make_base_app(node, DiffTarget::Uncommitted, Some(wts))
     }
@@ -1513,6 +1531,25 @@ mod tests {
         assert!(!app.uncommitted_diff_loading);
         assert!(app.uncommitted_diff_receiver.is_none());
         assert_eq!(app.message.as_deref(), Some("Failed to load diff: boom"));
+    }
+
+    #[test]
+    fn refresh_clears_uncommitted_cache_for_collapsed_untracked_directories() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let repo = Repository::init(tempdir.path()).unwrap();
+        let _oid = commit_file(&repo, "tracked.txt", "tracked\n", "initial");
+        fs::create_dir_all(tempdir.path().join("dir/sub")).unwrap();
+        fs::write(tempdir.path().join("dir/sub/file.txt"), "hello\n").unwrap();
+
+        let git_repo = GitRepository::open(tempdir.path()).unwrap();
+        let mut app = make_app_from_repo(git_repo);
+        app.uncommitted_diff_cache = Some(CommitDiffInfo::default());
+        app.uncommitted_cache_key = app.working_tree_status.clone();
+
+        app.refresh(false).unwrap();
+
+        assert!(app.uncommitted_diff_cache.is_none());
+        assert!(app.uncommitted_cache_key.is_none());
     }
 
     #[test]

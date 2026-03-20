@@ -96,13 +96,12 @@ impl GitRepository {
         }
 
         let mut opts = git2::StatusOptions::new();
-        opts.include_untracked(true)
-            .recurse_untracked_dirs(true)
-            .include_ignored(false);
+        opts.include_untracked(true).include_ignored(false);
 
         let statuses = self.repo.statuses(Some(&mut opts))?;
         let workdir = self.repo.workdir().unwrap_or_else(|| self.repo.path());
         let mut file_paths = Vec::new();
+        let mut has_collapsed_untracked_dirs = false;
 
         for entry in statuses.iter() {
             let status = entry.status();
@@ -127,10 +126,11 @@ impl GitRepository {
 
             if is_staged || has_worktree_changes {
                 if let Some(path) = entry.path() {
-                    if status.intersects(Status::WT_NEW)
-                        && CommitDiffInfo::is_plain_directory(&workdir.join(path))
-                    {
-                        continue;
+                    if status.intersects(Status::WT_NEW) {
+                        let full_path = workdir.join(path);
+                        if CommitDiffInfo::is_plain_directory(&full_path) {
+                            has_collapsed_untracked_dirs = true;
+                        }
                     }
                     file_paths.push(path.to_string());
                 }
@@ -158,6 +158,7 @@ impl GitRepository {
             Ok(Some(WorkingTreeStatus {
                 file_paths,
                 mtime_hash,
+                has_collapsed_untracked_dirs,
             }))
         }
     }
@@ -170,10 +171,18 @@ pub struct WorkingTreeStatus {
     pub file_paths: Vec<String>,
     /// Sum of file mtimes in milliseconds (used as cache key for content changes)
     pub mtime_hash: u128,
+    /// True when untracked directories were collapsed to a single status entry.
+    /// In that case the mtime hash is not precise enough to safely reuse the
+    /// uncommitted diff cache across refreshes.
+    pub has_collapsed_untracked_dirs: bool,
 }
 
 impl WorkingTreeStatus {
     pub fn file_count(&self) -> usize {
         self.file_paths.len()
+    }
+
+    pub fn is_precise_cache_key(&self) -> bool {
+        !self.has_collapsed_untracked_dirs
     }
 }

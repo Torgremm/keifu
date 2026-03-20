@@ -61,6 +61,15 @@ pub struct CommitDiffInfo {
 struct DiffScan {
     files: Vec<FileDiffInfo>,
     all_paths: HashSet<PathBuf>,
+    deferred_paths: HashSet<PathBuf>,
+}
+
+impl DiffScan {
+    fn line_totals(&self) -> (usize, usize) {
+        let insertions = self.files.iter().map(|file| file.insertions).sum();
+        let deletions = self.files.iter().map(|file| file.deletions).sum();
+        (insertions, deletions)
+    }
 }
 
 impl CommitDiffInfo {
@@ -88,19 +97,25 @@ impl CommitDiffInfo {
         let workdir = repo.workdir().unwrap_or_else(|| repo.path());
         let staged_result = Self::scan_diff(&staged_diff)?;
         let unstaged_result = Self::scan_diff(&unstaged_diff)?;
+        let tracked_paths: HashSet<PathBuf> = staged_result
+            .all_paths
+            .union(&unstaged_result.all_paths)
+            .cloned()
+            .collect();
         let refresh_paths: HashSet<PathBuf> = staged_result
             .all_paths
             .intersection(&unstaged_result.all_paths)
             .cloned()
             .collect();
-        let untracked_result = Self::scan_untracked_worktree(repo)?;
+        let untracked_display_limit = MAX_FILES_TO_DISPLAY.saturating_sub(tracked_paths.len());
+        let untracked_result = Self::scan_untracked_worktree(repo, untracked_display_limit)?;
         let mut worktree_refresh_paths = HashSet::new();
         let mut scan = Self::merge_scans(
             [staged_result, unstaged_result, untracked_result],
             workdir,
             &mut worktree_refresh_paths,
         )?;
-        Self::refresh_worktree_stats(
+        let (total_insertions, total_deletions) = Self::refresh_worktree_stats(
             repo,
             head_tree.as_ref(),
             &mut scan,
@@ -108,7 +123,7 @@ impl CommitDiffInfo {
             &refresh_paths,
             &worktree_refresh_paths,
         )?;
-        Self::build_info(scan)
+        Self::build_info(scan, Some((total_insertions, total_deletions)))
     }
 
     /// Get diff info for a commit
@@ -134,7 +149,7 @@ impl CommitDiffInfo {
 
         let diff = repo.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
 
-        Self::build_info(Self::scan_diff(&diff)?)
+        Self::build_info(Self::scan_diff(&diff)?, None)
     }
 
     fn scan_diff(diff: &Diff) -> Result<DiffScan> {
@@ -164,10 +179,14 @@ impl CommitDiffInfo {
             });
         }
 
-        Ok(DiffScan { files, all_paths })
+        Ok(DiffScan {
+            files,
+            all_paths,
+            deferred_paths: HashSet::new(),
+        })
     }
 
-    fn scan_untracked_worktree(repo: &Repository) -> Result<DiffScan> {
+    fn scan_untracked_worktree(repo: &Repository, display_limit: usize) -> Result<DiffScan> {
         let mut opts = StatusOptions::new();
         opts.include_untracked(true)
             .recurse_untracked_dirs(true)
@@ -177,6 +196,7 @@ impl CommitDiffInfo {
         let workdir = repo.workdir().unwrap_or_else(|| repo.path());
         let mut files = Vec::new();
         let mut all_paths = HashSet::new();
+        let mut deferred_paths = HashSet::new();
 
         for entry in statuses.iter() {
             let status = entry.status();
@@ -194,27 +214,26 @@ impl CommitDiffInfo {
                 continue;
             }
 
-            let line_count = if Self::path_is_binary_by_attributes(repo, &path_buf)? {
-                None
-            } else {
-                Self::count_text_file_lines(&full_path)?
-            };
-            let (is_binary, insertions) = match line_count {
-                Some(insertions) => (false, insertions),
-                None => (true, 0),
-            };
             all_paths.insert(path_buf.clone());
+            if files.len() >= display_limit {
+                continue;
+            }
+            deferred_paths.insert(path_buf.clone());
 
             files.push(FileDiffInfo {
                 path: path_buf,
                 kind: FileChangeKind::Added,
-                is_binary,
-                insertions,
+                is_binary: false,
+                insertions: 0,
                 deletions: 0,
             });
         }
 
-        Ok(DiffScan { files, all_paths })
+        Ok(DiffScan {
+            files,
+            all_paths,
+            deferred_paths,
+        })
     }
 
     fn path_is_binary_by_attributes(repo: &Repository, path: &Path) -> Result<bool> {
@@ -236,9 +255,11 @@ impl CommitDiffInfo {
         let mut files: Vec<FileDiffInfo> = Vec::new();
         let mut file_indexes: HashMap<PathBuf, usize> = HashMap::new();
         let mut all_paths = HashSet::new();
+        let mut deferred_paths = HashSet::new();
 
         for scan in scans {
             all_paths.extend(scan.all_paths);
+            deferred_paths.extend(scan.deferred_paths);
 
             for file in scan.files {
                 if let Some(&idx) = file_indexes.get(&file.path) {
@@ -277,6 +298,9 @@ impl CommitDiffInfo {
             if file.insertions > 0 {
                 continue;
             }
+            if deferred_paths.contains(&file.path) {
+                continue;
+            }
 
             let full_path = workdir.join(&file.path);
             if let Some(line_count) = Self::count_text_file_lines(&full_path)? {
@@ -284,7 +308,11 @@ impl CommitDiffInfo {
             }
         }
 
-        Ok(DiffScan { files, all_paths })
+        Ok(DiffScan {
+            files,
+            all_paths,
+            deferred_paths,
+        })
     }
 
     fn refresh_worktree_stats(
@@ -294,25 +322,36 @@ impl CommitDiffInfo {
         workdir: &Path,
         refresh_paths: &HashSet<PathBuf>,
         worktree_refresh_paths: &HashSet<PathBuf>,
-    ) -> Result<()> {
+    ) -> Result<(usize, usize)> {
         let mut merged_opts = DiffOptions::new();
         merged_opts.ignore_submodules(true);
         merged_opts.context_lines(0);
         merged_opts.include_untracked(true);
         merged_opts.recurse_untracked_dirs(true);
+        merged_opts.show_untracked_content(true);
 
-        let merged_diff = repo.diff_tree_to_workdir_with_index(head_tree, Some(&mut merged_opts))?;
+        let merged_diff =
+            repo.diff_tree_to_workdir_with_index(head_tree, Some(&mut merged_opts))?;
+        let merged_stats = merged_diff.stats()?;
+        let mut total_insertions = merged_stats.insertions();
+        let mut total_deletions = merged_stats.deletions();
 
-        let mut worktree_opts = DiffOptions::new();
-        worktree_opts.ignore_submodules(true);
-        worktree_opts.context_lines(0);
-        worktree_opts.include_untracked(true);
-        worktree_opts.recurse_untracked_dirs(true);
-
-        let worktree_diff = repo.diff_tree_to_workdir(head_tree, Some(&mut worktree_opts))?;
+        let worktree_diff = if worktree_refresh_paths.is_empty() {
+            None
+        } else {
+            let mut worktree_opts = DiffOptions::new();
+            worktree_opts.ignore_submodules(true);
+            worktree_opts.context_lines(0);
+            worktree_opts.include_untracked(true);
+            worktree_opts.recurse_untracked_dirs(true);
+            worktree_opts.show_untracked_content(true);
+            Some(repo.diff_tree_to_workdir(head_tree, Some(&mut worktree_opts))?)
+        };
         for file in &mut scan.files {
             let use_worktree_diff = worktree_refresh_paths.contains(&file.path);
+            let merged_path_stats = Self::line_stats_for_path(&merged_diff, &file.path)?;
             let needs_refresh = use_worktree_diff
+                || scan.deferred_paths.contains(&file.path)
                 || refresh_paths.contains(&file.path)
                 || (!file.is_binary && file.insertions == 0 && file.deletions == 0);
             if matches!(file.kind, FileChangeKind::Deleted) || !needs_refresh {
@@ -321,7 +360,9 @@ impl CommitDiffInfo {
 
             let refreshed = Self::line_stats_for_path(
                 if use_worktree_diff {
-                    &worktree_diff
+                    worktree_diff
+                        .as_ref()
+                        .expect("worktree diff should exist for refresh paths")
                 } else {
                     &merged_diff
                 },
@@ -329,18 +370,21 @@ impl CommitDiffInfo {
             )?;
             let Some((is_binary, insertions, deletions)) = (match refreshed {
                 Some(stats) if use_worktree_diff => Self::fallback_recreated_path_stats(
-                    repo,
-                    head_tree,
-                    workdir,
-                    &file.path,
-                    stats,
+                    repo, head_tree, workdir, &file.path, stats,
                 )?,
                 Some(stats) => Some(stats),
                 None => None,
-            })
-            else {
+            }) else {
                 continue;
             };
+            let (merged_insertions, merged_deletions) = merged_path_stats
+                .map(|(_, insertions, deletions)| (insertions, deletions))
+                .unwrap_or((0, 0));
+
+            if insertions != merged_insertions || deletions != merged_deletions {
+                total_insertions = total_insertions + insertions - merged_insertions;
+                total_deletions = total_deletions + deletions - merged_deletions;
+            }
 
             if file.is_binary == is_binary
                 && file.insertions == insertions
@@ -354,13 +398,12 @@ impl CommitDiffInfo {
             file.deletions = deletions;
         }
 
-        Ok(())
+        Ok((total_insertions, total_deletions))
     }
 
-    fn build_info(scan: DiffScan) -> Result<Self> {
+    fn build_info(scan: DiffScan, totals: Option<(usize, usize)>) -> Result<Self> {
         let total_files = scan.all_paths.len();
-        let total_insertions = scan.files.iter().map(|file| file.insertions).sum();
-        let total_deletions = scan.files.iter().map(|file| file.deletions).sum();
+        let (total_insertions, total_deletions) = totals.unwrap_or_else(|| scan.line_totals());
         let truncated = total_files > MAX_FILES_TO_DISPLAY;
         let files = scan.files.into_iter().take(MAX_FILES_TO_DISPLAY).collect();
 
@@ -447,7 +490,11 @@ impl CommitDiffInfo {
         Ok(Some((false, lines)))
     }
 
-    fn worktree_path_line_info(repo: &Repository, workdir: &Path, path: &Path) -> Result<(bool, usize)> {
+    fn worktree_path_line_info(
+        repo: &Repository,
+        workdir: &Path,
+        path: &Path,
+    ) -> Result<(bool, usize)> {
         if Self::path_is_binary_by_attributes(repo, path)? {
             return Ok((true, 0));
         }

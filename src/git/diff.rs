@@ -277,6 +277,13 @@ impl CommitDiffInfo {
                         // exists, so a later text rewrite can override an earlier binary delta.
                         existing.is_binary = file.is_binary;
                     } else {
+                        // file.kind == Deleted — the path was removed from the
+                        // worktree after being staged (e.g. MD status).
+                        // Skip Added so AD (added then deleted) doesn't become
+                        // an invalid Deleted-from-HEAD entry.
+                        if existing.kind != FileChangeKind::Added {
+                            existing.kind = FileChangeKind::Deleted;
+                        }
                         existing.is_binary |= file.is_binary;
                     }
                     existing.insertions += file.insertions;

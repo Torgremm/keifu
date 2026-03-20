@@ -458,7 +458,14 @@ impl App {
                     self.graph_layout.nodes.iter().position(|node| {
                         node.commit.as_ref().is_some_and(|commit| commit.oid == oid)
                     });
-                self.graph_list_state.select(node_idx);
+                if let Some(idx) = node_idx {
+                    self.graph_list_state.select(Some(idx));
+                } else if let Some(prev) = self.graph_list_state.selected() {
+                    // OID pushed out of range — keep cursor at the nearest
+                    // valid row instead of clearing the selection.
+                    let max = self.graph_layout.nodes.len().saturating_sub(1);
+                    self.graph_list_state.select(Some(prev.min(max)));
+                }
             }
         }
 

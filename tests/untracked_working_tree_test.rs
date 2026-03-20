@@ -400,7 +400,7 @@ fn from_working_tree_staged_added_file_marked_binary_keeps_binary_classification
 }
 
 #[test]
-fn from_working_tree_drops_staged_add_removed_in_worktree() {
+fn from_working_tree_keeps_staged_add_removed_in_worktree() {
     let (tempdir, repo) = init_repo();
 
     fs::write(tempdir.path().join("new.txt"), "line1\n").unwrap();
@@ -411,16 +411,16 @@ fn from_working_tree_drops_staged_add_removed_in_worktree() {
 
     fs::remove_file(tempdir.path().join("new.txt")).unwrap();
 
+    // AD status: the index still has a staged add, so the file must remain
+    // visible to stay consistent with get_working_tree_status() counts.
     let diff = CommitDiffInfo::from_working_tree(&repo).unwrap();
 
-    assert_eq!(diff.total_files, 0);
-    assert_eq!(diff.total_insertions, 0);
-    assert_eq!(diff.total_deletions, 0);
-    assert!(diff.files.is_empty());
+    assert_eq!(diff.total_files, 1);
+    assert!(diff.files.iter().any(|f| f.path == Path::new("new.txt")));
 }
 
 #[test]
-fn from_working_tree_drops_staged_change_reverted_in_worktree() {
+fn from_working_tree_keeps_staged_change_reverted_in_worktree() {
     let (tempdir, repo) = init_repo();
 
     fs::write(tempdir.path().join("tracked.txt"), "staged change\n").unwrap();
@@ -431,12 +431,17 @@ fn from_working_tree_drops_staged_change_reverted_in_worktree() {
 
     fs::write(tempdir.path().join("tracked.txt"), "tracked\n").unwrap();
 
+    // MM-reverted status: workdir matches HEAD but the index has staged
+    // modifications.  The file must stay visible for consistency with the
+    // file count reported by get_working_tree_status().
     let diff = CommitDiffInfo::from_working_tree(&repo).unwrap();
 
-    assert_eq!(diff.total_files, 0);
-    assert_eq!(diff.total_insertions, 0);
-    assert_eq!(diff.total_deletions, 0);
-    assert!(diff.files.is_empty());
+    assert_eq!(diff.total_files, 1);
+    assert!(
+        diff.files
+            .iter()
+            .any(|f| f.path == Path::new("tracked.txt"))
+    );
 }
 
 #[test]
@@ -860,10 +865,10 @@ fn working_tree_status_includes_untracked_symlink_to_directory() {
 }
 
 #[test]
-fn from_working_tree_backfills_untracked_when_tracked_dropped() {
+fn from_working_tree_includes_both_staged_reverted_and_untracked() {
     let (tempdir, repo) = init_repo();
 
-    // Stage additions that will be removed from the worktree → dropped by refresh
+    // Stage additions that are then removed from the worktree (AD status)
     for i in 0..3 {
         let name = format!("staged_{}.txt", i);
         fs::write(tempdir.path().join(&name), format!("line {}\n", i)).unwrap();
@@ -873,7 +878,7 @@ fn from_working_tree_backfills_untracked_when_tracked_dropped() {
         fs::remove_file(tempdir.path().join(&name)).unwrap();
     }
 
-    // Create untracked files that should fill the display
+    // Create untracked files
     for i in 0..3 {
         fs::write(
             tempdir.path().join(format!("untracked_{}.txt", i)),
@@ -884,10 +889,17 @@ fn from_working_tree_backfills_untracked_when_tracked_dropped() {
 
     let diff = CommitDiffInfo::from_working_tree(&repo).unwrap();
 
-    // The 3 staged-then-removed files should be dropped; only 3 untracked remain
-    assert_eq!(diff.total_files, 3);
-    assert_eq!(diff.files.len(), 3);
+    // All 6 files should be present: 3 AD (index-only) + 3 untracked
+    assert_eq!(diff.total_files, 6);
     assert!(!diff.truncated);
+    for i in 0..3 {
+        let name = format!("staged_{}.txt", i);
+        assert!(
+            diff.files.iter().any(|f| f.path == Path::new(&name)),
+            "staged file {} should remain in files list",
+            name
+        );
+    }
     for i in 0..3 {
         let name = format!("untracked_{}.txt", i);
         assert!(

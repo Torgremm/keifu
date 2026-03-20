@@ -1277,7 +1277,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use chrono::Local;
     use git2::{Oid, Repository, Signature};
@@ -1468,7 +1468,7 @@ mod tests {
             cells: vec![CellType::Commit(0)],
         };
         let wts = WorkingTreeStatus {
-            file_paths: vec!["tracked.txt".to_string()],
+            file_paths: vec![PathBuf::from("tracked.txt")],
             mtime_hash: 1,
             has_collapsed_untracked_dirs: false,
         };

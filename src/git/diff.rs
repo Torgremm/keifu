@@ -340,7 +340,6 @@ impl CommitDiffInfo {
         let worktree_stats = worktree_diff.stats()?;
         let mut total_insertions = worktree_stats.insertions();
         let mut total_deletions = worktree_stats.deletions();
-        let mut dropped_paths = HashSet::new();
         for file in &mut scan.files {
             let use_worktree_diff = worktree_refresh_paths.contains(&file.path);
             let worktree_path_stats = Self::line_stats_for_path(&worktree_diff, &file.path)?;
@@ -355,7 +354,12 @@ impl CommitDiffInfo {
             let Some((worktree_is_binary, worktree_insertions, worktree_deletions)) =
                 worktree_path_stats
             else {
-                dropped_paths.insert(file.path.clone());
+                // Path has no HEAD→workdir diff (e.g. MM/AD where workdir
+                // matches HEAD).  Keep the file with its merge_scans stats
+                // so that index-only changes remain visible, and include its
+                // stats in the totals which start from worktree_diff.stats().
+                total_insertions += file.insertions;
+                total_deletions += file.deletions;
                 continue;
             };
             let (is_binary, insertions, deletions) = if use_worktree_diff {
@@ -389,13 +393,6 @@ impl CommitDiffInfo {
             file.is_binary = is_binary;
             file.insertions = insertions;
             file.deletions = deletions;
-        }
-        if !dropped_paths.is_empty() {
-            scan.files
-                .retain(|file| !dropped_paths.contains(&file.path));
-            scan.all_paths.retain(|path| !dropped_paths.contains(path));
-            scan.deferred_paths
-                .retain(|path| !dropped_paths.contains(path));
         }
 
         Ok((total_insertions, total_deletions))

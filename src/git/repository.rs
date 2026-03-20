@@ -1,6 +1,6 @@
 //! Repository operation wrapper
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use anyhow::{Context, Result};
@@ -16,6 +16,19 @@ pub struct GitRepository {
 }
 
 impl GitRepository {
+    /// Convert raw bytes from git2 into a PathBuf.
+    #[cfg(unix)]
+    fn path_from_bytes(bytes: &[u8]) -> PathBuf {
+        use std::os::unix::ffi::OsStrExt;
+        PathBuf::from(std::ffi::OsStr::from_bytes(bytes))
+    }
+
+    /// Convert raw bytes from git2 into a PathBuf.
+    #[cfg(not(unix))]
+    fn path_from_bytes(bytes: &[u8]) -> PathBuf {
+        PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
+    }
+
     /// Discover a repository from the current directory
     pub fn discover() -> Result<Self> {
         let repo = Repository::discover(".")
@@ -100,7 +113,7 @@ impl GitRepository {
 
         let statuses = self.repo.statuses(Some(&mut opts))?;
         let workdir = self.repo.workdir().unwrap_or_else(|| self.repo.path());
-        let mut file_paths = Vec::new();
+        let mut file_paths: Vec<PathBuf> = Vec::new();
         let mut has_collapsed_untracked_dirs = false;
 
         for entry in statuses.iter() {
@@ -125,15 +138,14 @@ impl GitRepository {
             );
 
             if is_staged || has_worktree_changes {
-                if let Some(path) = entry.path() {
-                    if status.intersects(Status::WT_NEW) {
-                        let full_path = workdir.join(path);
-                        if CommitDiffInfo::is_plain_directory(&full_path) {
-                            has_collapsed_untracked_dirs = true;
-                        }
+                let path = Self::path_from_bytes(entry.path_bytes());
+                if status.intersects(Status::WT_NEW) {
+                    let full_path = workdir.join(&path);
+                    if CommitDiffInfo::is_plain_directory(&full_path) {
+                        has_collapsed_untracked_dirs = true;
                     }
-                    file_paths.push(path.to_string());
                 }
+                file_paths.push(path);
             }
         }
 
@@ -168,7 +180,7 @@ impl GitRepository {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkingTreeStatus {
     /// Sorted list of file paths with changes (used as cache key)
-    pub file_paths: Vec<String>,
+    pub file_paths: Vec<PathBuf>,
     /// Sum of file mtimes in milliseconds (used as cache key for content changes)
     pub mtime_hash: u128,
     /// True when untracked directories were collapsed to a single status entry.

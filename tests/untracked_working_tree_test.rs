@@ -428,6 +428,51 @@ fn from_working_tree_deleted_then_recreated_shows_modified() {
 }
 
 #[test]
+fn from_working_tree_deleted_then_recreated_recomputes_overlapping_text_stats() {
+    let (tempdir, repo) = init_repo();
+
+    fs::write(tempdir.path().join("tracked.txt"), "a\nb\n").unwrap();
+
+    let mut index = repo.index().unwrap();
+    index.add_path(Path::new("tracked.txt")).unwrap();
+    index.write().unwrap();
+    let tree_id = index.write_tree().unwrap();
+    let tree = repo.find_tree(tree_id).unwrap();
+    let signature = Signature::now("Test User", "test@example.com").unwrap();
+    let parent = repo.head().unwrap().peel_to_commit().unwrap();
+    repo.commit(
+        Some("HEAD"),
+        &signature,
+        &signature,
+        "replace tracked.txt contents",
+        &tree,
+        &[&parent],
+    )
+    .unwrap();
+    drop(tree);
+
+    let mut index = repo.index().unwrap();
+    index.remove(Path::new("tracked.txt"), 0).unwrap();
+    index.write().unwrap();
+
+    fs::write(tempdir.path().join("tracked.txt"), "a\nc\n").unwrap();
+
+    let diff = CommitDiffInfo::from_working_tree(&repo).unwrap();
+    let file = diff
+        .files
+        .iter()
+        .find(|f| f.path == Path::new("tracked.txt"))
+        .expect("tracked.txt should appear in diff");
+
+    assert_eq!(file.kind, FileChangeKind::Modified);
+    assert!(!file.is_binary);
+    assert_eq!(file.insertions, 1);
+    assert_eq!(file.deletions, 1);
+    assert_eq!(diff.total_insertions, 1);
+    assert_eq!(diff.total_deletions, 1);
+}
+
+#[test]
 fn from_working_tree_deleted_binary_then_recreated_text_uses_text_stats() {
     let (tempdir, repo) = init_repo();
 

@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use git2::{
     AttrCheckFlags, AttrValue, Delta, Diff, DiffDelta, DiffOptions, ErrorCode, Oid, Patch,
-    Repository, Status, StatusOptions,
+    Repository, Status, StatusOptions, Tree,
 };
 
 /// Maximum number of files to display
@@ -88,15 +88,26 @@ impl CommitDiffInfo {
         let workdir = repo.workdir().unwrap_or_else(|| repo.path());
         let staged_result = Self::scan_diff(&staged_diff)?;
         let unstaged_result = Self::scan_diff(&unstaged_diff)?;
-        let refresh_paths = staged_result
+        let refresh_paths: HashSet<PathBuf> = staged_result
             .all_paths
             .intersection(&unstaged_result.all_paths)
             .cloned()
             .collect();
         let untracked_result = Self::scan_untracked_worktree(repo)?;
-        let mut scan =
-            Self::merge_scans([staged_result, unstaged_result, untracked_result], workdir)?;
-        Self::refresh_worktree_stats(repo, head_tree.as_ref(), &mut scan, &refresh_paths)?;
+        let mut worktree_refresh_paths = HashSet::new();
+        let mut scan = Self::merge_scans(
+            [staged_result, unstaged_result, untracked_result],
+            workdir,
+            &mut worktree_refresh_paths,
+        )?;
+        Self::refresh_worktree_stats(
+            repo,
+            head_tree.as_ref(),
+            &mut scan,
+            workdir,
+            &refresh_paths,
+            &worktree_refresh_paths,
+        )?;
         Self::build_info(scan)
     }
 
@@ -217,7 +228,11 @@ impl CommitDiffInfo {
         Ok(matches!(diff_attr, AttrValue::False))
     }
 
-    fn merge_scans(scans: [DiffScan; 3], workdir: &Path) -> Result<DiffScan> {
+    fn merge_scans(
+        scans: [DiffScan; 3],
+        workdir: &Path,
+        worktree_refresh_paths: &mut HashSet<PathBuf>,
+    ) -> Result<DiffScan> {
         let mut files: Vec<FileDiffInfo> = Vec::new();
         let mut file_indexes: HashMap<PathBuf, usize> = HashMap::new();
         let mut all_paths = HashSet::new();
@@ -235,6 +250,7 @@ impl CommitDiffInfo {
                     {
                         existing.kind = FileChangeKind::Modified;
                         existing.is_binary = file.is_binary;
+                        worktree_refresh_paths.insert(file.path.clone());
                     } else if file.kind != FileChangeKind::Deleted {
                         // Prefer the worktree-side classification when the final path still
                         // exists, so a later text rewrite can override an earlier binary delta.
@@ -273,26 +289,55 @@ impl CommitDiffInfo {
 
     fn refresh_worktree_stats(
         repo: &Repository,
-        head_tree: Option<&git2::Tree<'_>>,
+        head_tree: Option<&Tree<'_>>,
         scan: &mut DiffScan,
+        workdir: &Path,
         refresh_paths: &HashSet<PathBuf>,
+        worktree_refresh_paths: &HashSet<PathBuf>,
     ) -> Result<()> {
-        let mut opts = DiffOptions::new();
-        opts.ignore_submodules(true);
-        opts.context_lines(0);
-        opts.include_untracked(true);
-        opts.recurse_untracked_dirs(true);
+        let mut merged_opts = DiffOptions::new();
+        merged_opts.ignore_submodules(true);
+        merged_opts.context_lines(0);
+        merged_opts.include_untracked(true);
+        merged_opts.recurse_untracked_dirs(true);
 
-        let diff = repo.diff_tree_to_workdir_with_index(head_tree, Some(&mut opts))?;
+        let merged_diff = repo.diff_tree_to_workdir_with_index(head_tree, Some(&mut merged_opts))?;
+
+        let mut worktree_opts = DiffOptions::new();
+        worktree_opts.ignore_submodules(true);
+        worktree_opts.context_lines(0);
+        worktree_opts.include_untracked(true);
+        worktree_opts.recurse_untracked_dirs(true);
+
+        let worktree_diff = repo.diff_tree_to_workdir(head_tree, Some(&mut worktree_opts))?;
         for file in &mut scan.files {
-            let needs_refresh = refresh_paths.contains(&file.path)
+            let use_worktree_diff = worktree_refresh_paths.contains(&file.path);
+            let needs_refresh = use_worktree_diff
+                || refresh_paths.contains(&file.path)
                 || (!file.is_binary && file.insertions == 0 && file.deletions == 0);
             if matches!(file.kind, FileChangeKind::Deleted) || !needs_refresh {
                 continue;
             }
 
-            let Some((is_binary, insertions, deletions)) =
-                Self::line_stats_for_path(&diff, &file.path)?
+            let refreshed = Self::line_stats_for_path(
+                if use_worktree_diff {
+                    &worktree_diff
+                } else {
+                    &merged_diff
+                },
+                &file.path,
+            )?;
+            let Some((is_binary, insertions, deletions)) = (match refreshed {
+                Some(stats) if use_worktree_diff => Self::fallback_recreated_path_stats(
+                    repo,
+                    head_tree,
+                    workdir,
+                    &file.path,
+                    stats,
+                )?,
+                Some(stats) => Some(stats),
+                None => None,
+            })
             else {
                 continue;
             };
@@ -358,6 +403,63 @@ impl CommitDiffInfo {
         Ok((insertions, deletions))
     }
 
+    fn fallback_recreated_path_stats(
+        repo: &Repository,
+        head_tree: Option<&Tree<'_>>,
+        workdir: &Path,
+        path: &Path,
+        stats: (bool, usize, usize),
+    ) -> Result<Option<(bool, usize, usize)>> {
+        let Some((old_is_binary, old_lines)) = Self::head_path_line_info(repo, head_tree, path)?
+        else {
+            return Ok(Some(stats));
+        };
+        let (new_is_binary, new_lines) = Self::worktree_path_line_info(repo, workdir, path)?;
+
+        let fallback = match (old_is_binary, new_is_binary) {
+            (true, false) => Some((false, new_lines, 0)),
+            (false, true) => Some((true, 0, old_lines)),
+            (true, true) => Some((true, 0, 0)),
+            (false, false) => None,
+        };
+
+        Ok(Some(fallback.unwrap_or(stats)))
+    }
+
+    fn head_path_line_info(
+        repo: &Repository,
+        head_tree: Option<&Tree<'_>>,
+        path: &Path,
+    ) -> Result<Option<(bool, usize)>> {
+        let Some(head_tree) = head_tree else {
+            return Ok(None);
+        };
+        let entry = match head_tree.get_path(path) {
+            Ok(entry) => entry,
+            Err(err) if err.code() == ErrorCode::NotFound => return Ok(None),
+            Err(err) => return Err(err.into()),
+        };
+        let blob = repo.find_blob(entry.id())?;
+        let Some(lines) = Self::count_text_lines(blob.content()) else {
+            return Ok(Some((true, 0)));
+        };
+
+        Ok(Some((false, lines)))
+    }
+
+    fn worktree_path_line_info(repo: &Repository, workdir: &Path, path: &Path) -> Result<(bool, usize)> {
+        if Self::path_is_binary_by_attributes(repo, path)? {
+            return Ok((true, 0));
+        }
+
+        let full_path = workdir.join(path);
+        let Some(lines) = Self::count_text_file_lines(&full_path)? else {
+            return Ok((true, 0));
+        };
+
+        Ok((false, lines))
+    }
+
     /// Count lines in a text file. Returns `None` if the file appears to be binary
     /// (contains null bytes). Returns `Some(0)` if the file cannot be found
     /// (e.g. deleted between listing and reading).
@@ -378,35 +480,24 @@ impl CommitDiffInfo {
             Err(e) => return Err(e.into()),
         };
 
-        let mut buf = [0_u8; 8192];
-        let mut line_count = 0;
-        let mut has_content = false;
-        let mut last_byte = None;
+        let mut buf = Vec::new();
+        match file.read_to_end(&mut buf) {
+            Ok(_) => Ok(Self::count_text_lines(&buf)),
+            Err(_) => Ok(None),
+        }
+    }
 
-        loop {
-            let read = match file.read(&mut buf) {
-                Ok(n) => n,
-                Err(_) => return Ok(None),
-            };
-            if read == 0 {
-                break;
-            }
-
-            let chunk = &buf[..read];
-            if chunk.contains(&0) {
-                return Ok(None);
-            }
-
-            has_content = true;
-            line_count += chunk.iter().filter(|&&byte| byte == b'\n').count();
-            last_byte = chunk.last().copied();
+    fn count_text_lines(content: &[u8]) -> Option<usize> {
+        if content.contains(&0) {
+            return None;
         }
 
-        if has_content && last_byte != Some(b'\n') {
+        let mut line_count = content.iter().filter(|&&byte| byte == b'\n').count();
+        if !content.is_empty() && !content.ends_with(b"\n") {
             line_count += 1;
         }
 
-        Ok(Some(line_count))
+        Some(line_count)
     }
 
     fn count_symlink_lines(path: &Path) -> Result<Option<usize>> {

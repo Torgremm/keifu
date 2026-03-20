@@ -1,6 +1,6 @@
 //! Commit diff information
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Read;
 #[cfg(unix)]
@@ -219,8 +219,7 @@ impl CommitDiffInfo {
 
     fn merge_scans(scans: [DiffScan; 3], workdir: &Path) -> Result<DiffScan> {
         let mut files: Vec<FileDiffInfo> = Vec::new();
-        let mut file_indexes: std::collections::HashMap<PathBuf, usize> =
-            std::collections::HashMap::new();
+        let mut file_indexes: HashMap<PathBuf, usize> = HashMap::new();
         let mut all_paths = HashSet::new();
 
         for scan in scans {
@@ -252,22 +251,20 @@ impl CommitDiffInfo {
             }
         }
 
+        // Recount lines for Added files that have no stats yet (e.g. staged adds
+        // where Patch::from_diff returned None). Files already counted by
+        // scan_untracked_worktree or scan_diff are skipped to avoid redundant I/O.
         for file in &mut files {
-            if file.is_binary {
+            if file.is_binary || file.kind != FileChangeKind::Added {
+                continue;
+            }
+            if file.insertions > 0 {
                 continue;
             }
 
             let full_path = workdir.join(&file.path);
-            if std::fs::symlink_metadata(&full_path).is_err() {
-                continue;
-            }
-
-            let Some(line_count) = Self::count_text_file_lines(&full_path)? else {
-                continue;
-            };
-            if file.kind == FileChangeKind::Added {
+            if let Some(line_count) = Self::count_text_file_lines(&full_path)? {
                 file.insertions = line_count;
-                file.deletions = 0;
             }
         }
 
@@ -442,7 +439,7 @@ impl CommitDiffInfo {
         line_count
     }
 
-    fn is_plain_directory(path: &Path) -> bool {
+    pub(crate) fn is_plain_directory(path: &Path) -> bool {
         matches!(
             std::fs::symlink_metadata(path),
             Ok(meta) if meta.file_type().is_dir()

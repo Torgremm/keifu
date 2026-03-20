@@ -8,7 +8,7 @@ use git2::{Repository, Status};
 
 use git2::Oid;
 
-use super::{BranchInfo, CommitInfo};
+use super::{BranchInfo, CommitDiffInfo, CommitInfo};
 
 pub struct GitRepository {
     pub repo: Repository,
@@ -127,14 +127,10 @@ impl GitRepository {
 
             if is_staged || has_worktree_changes {
                 if let Some(path) = entry.path() {
-                    if status.intersects(Status::WT_NEW) {
-                        let full_path = workdir.join(path);
-                        if matches!(
-                            std::fs::symlink_metadata(&full_path),
-                            Ok(meta) if meta.file_type().is_dir()
-                        ) {
-                            continue;
-                        }
+                    if status.intersects(Status::WT_NEW)
+                        && CommitDiffInfo::is_plain_directory(&workdir.join(path))
+                    {
+                        continue;
                     }
                     file_paths.push(path.to_string());
                 }

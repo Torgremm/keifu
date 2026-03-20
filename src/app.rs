@@ -1267,46 +1267,43 @@ mod tests {
         }
     }
 
-    fn make_app(selected_oid: Oid, in_flight_oid: Option<Oid>) -> App {
+    fn make_base_app(
+        node: GraphNode,
+        diff_target: DiffTarget,
+        working_tree_status: Option<WorkingTreeStatus>,
+    ) -> App {
         let (_tempdir, repo) = init_repo();
         let mut graph_list_state = ListState::default();
         graph_list_state.select(Some(0));
+
+        let commits = node.commit.iter().cloned().collect();
 
         App {
             mode: AppMode::Normal,
             repo_path: repo.path.clone(),
             repo,
             head_name: None,
-            commits: vec![make_commit(selected_oid)],
+            commits,
             branches: Vec::new(),
             graph_layout: GraphLayout {
-                nodes: vec![GraphNode {
-                    commit: Some(make_commit(selected_oid)),
-                    lane: 0,
-                    color_index: 0,
-                    branch_names: Vec::new(),
-                    is_head: false,
-                    is_uncommitted: false,
-                    uncommitted_count: 0,
-                    cells: vec![CellType::Commit(0)],
-                }],
+                nodes: vec![node],
                 max_lane: 0,
             },
             graph_list_state,
             branch_positions: Vec::new(),
             selected_branch_position: None,
             search_state: SearchState::default(),
-            working_tree_status: None,
+            working_tree_status,
             diff_cache: None,
             diff_cache_oid: None,
-            diff_loading_oid: in_flight_oid,
+            diff_loading_oid: None,
             diff_receiver: None,
             uncommitted_diff_cache: None,
             uncommitted_diff_failed: false,
             uncommitted_diff_loading: false,
             uncommitted_diff_receiver: None,
             uncommitted_cache_key: None,
-            selected_diff_target: Some(DiffTarget::Commit(selected_oid)),
+            selected_diff_target: Some(diff_target),
             selected_diff_target_changed_at: Instant::now() - DIFF_LOAD_DEBOUNCE,
             should_quit: false,
             message: None,
@@ -1319,59 +1316,38 @@ mod tests {
         }
     }
 
-    fn make_uncommitted_app() -> App {
-        let (_tempdir, repo) = init_repo();
-        let mut graph_list_state = ListState::default();
-        graph_list_state.select(Some(0));
+    fn make_app(selected_oid: Oid, in_flight_oid: Option<Oid>) -> App {
+        let node = GraphNode {
+            commit: Some(make_commit(selected_oid)),
+            lane: 0,
+            color_index: 0,
+            branch_names: Vec::new(),
+            is_head: false,
+            is_uncommitted: false,
+            uncommitted_count: 0,
+            cells: vec![CellType::Commit(0)],
+        };
+        let mut app = make_base_app(node, DiffTarget::Commit(selected_oid), None);
+        app.diff_loading_oid = in_flight_oid;
+        app
+    }
 
-        App {
-            mode: AppMode::Normal,
-            repo_path: repo.path.clone(),
-            repo,
-            head_name: None,
-            commits: Vec::new(),
-            branches: Vec::new(),
-            graph_layout: GraphLayout {
-                nodes: vec![GraphNode {
-                    commit: None,
-                    lane: 0,
-                    color_index: 0,
-                    branch_names: Vec::new(),
-                    is_head: false,
-                    is_uncommitted: true,
-                    uncommitted_count: 1,
-                    cells: vec![CellType::Commit(0)],
-                }],
-                max_lane: 0,
-            },
-            graph_list_state,
-            branch_positions: Vec::new(),
-            selected_branch_position: None,
-            search_state: SearchState::default(),
-            working_tree_status: Some(WorkingTreeStatus {
-                file_paths: vec!["tracked.txt".to_string()],
-                mtime_hash: 1,
-            }),
-            diff_cache: None,
-            diff_cache_oid: None,
-            diff_loading_oid: None,
-            diff_receiver: None,
-            uncommitted_diff_cache: None,
-            uncommitted_diff_failed: false,
-            uncommitted_diff_loading: false,
-            uncommitted_diff_receiver: None,
-            uncommitted_cache_key: None,
-            selected_diff_target: Some(DiffTarget::Uncommitted),
-            selected_diff_target_changed_at: Instant::now() - DIFF_LOAD_DEBOUNCE,
-            should_quit: false,
-            message: None,
-            message_time: None,
-            fetch_receiver: None,
-            fetch_silent: false,
-            config: Config::default(),
-            last_refresh_time: Instant::now(),
-            last_fetch_time: Instant::now(),
-        }
+    fn make_uncommitted_app() -> App {
+        let node = GraphNode {
+            commit: None,
+            lane: 0,
+            color_index: 0,
+            branch_names: Vec::new(),
+            is_head: false,
+            is_uncommitted: true,
+            uncommitted_count: 1,
+            cells: vec![CellType::Commit(0)],
+        };
+        let wts = WorkingTreeStatus {
+            file_paths: vec!["tracked.txt".to_string()],
+            mtime_hash: 1,
+        };
+        make_base_app(node, DiffTarget::Uncommitted, Some(wts))
     }
 
     #[test]

@@ -248,6 +248,28 @@ fn merge_syntax_and_emphasis(
         }
 
         let chunk_len = syn_rem.min(emp_rem);
+        // Ensure we don't slice in the middle of a multi-byte UTF-8 character.
+        // Both span lists cover the same text, but syntect and similar may
+        // split at different token boundaries.
+        let chunk_len = {
+            let syn_remaining = &syn_text[syn_off..];
+            let emp_remaining = &emp_text[emp_off..];
+            let mut len = chunk_len;
+            while len > 0
+                && (!syn_remaining.is_char_boundary(len) || !emp_remaining.is_char_boundary(len))
+            {
+                len -= 1;
+            }
+            len
+        };
+        if chunk_len == 0 {
+            // Cannot find a common char boundary; skip both spans to avoid infinite loop
+            syn_idx += 1;
+            syn_off = 0;
+            emp_idx += 1;
+            emp_off = 0;
+            continue;
+        }
         let text = &syn_text[syn_off..syn_off + chunk_len];
         let fg = syntect_fg(syn_style);
         let bg = if *emphasized { emph_bg } else { base_bg };

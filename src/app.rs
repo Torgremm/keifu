@@ -1131,13 +1131,14 @@ impl App {
         };
         let total_lines = *total_lines;
         let file_index = *file_index;
-        let half_page = (self.diff_viewport_height as usize / 2).max(1);
-        let full_page = self.diff_viewport_height as usize;
+        let viewport = self.diff_viewport_height as usize;
+        let half_page = (viewport / 2).max(1);
+        let max_scroll = total_lines.saturating_sub(viewport);
 
         match action {
             Action::ScrollDown => {
                 if let AppMode::FileDiff { scroll_offset, .. } = &mut self.mode {
-                    *scroll_offset = (*scroll_offset + 1).min(total_lines.saturating_sub(1));
+                    *scroll_offset = (*scroll_offset + 1).min(max_scroll);
                 }
             }
             Action::ScrollUp => {
@@ -1147,8 +1148,7 @@ impl App {
             }
             Action::ScrollPageDown => {
                 if let AppMode::FileDiff { scroll_offset, .. } = &mut self.mode {
-                    *scroll_offset =
-                        (*scroll_offset + half_page).min(total_lines.saturating_sub(1));
+                    *scroll_offset = (*scroll_offset + half_page).min(max_scroll);
                 }
             }
             Action::ScrollPageUp => {
@@ -1158,13 +1158,12 @@ impl App {
             }
             Action::PageDown => {
                 if let AppMode::FileDiff { scroll_offset, .. } = &mut self.mode {
-                    *scroll_offset =
-                        (*scroll_offset + full_page).min(total_lines.saturating_sub(1));
+                    *scroll_offset = (*scroll_offset + viewport).min(max_scroll);
                 }
             }
             Action::PageUp => {
                 if let AppMode::FileDiff { scroll_offset, .. } = &mut self.mode {
-                    *scroll_offset = scroll_offset.saturating_sub(full_page);
+                    *scroll_offset = scroll_offset.saturating_sub(viewport);
                 }
             }
             Action::ScrollToTop => {
@@ -1174,7 +1173,7 @@ impl App {
             }
             Action::ScrollToBottom => {
                 if let AppMode::FileDiff { scroll_offset, .. } = &mut self.mode {
-                    *scroll_offset = total_lines.saturating_sub(1);
+                    *scroll_offset = max_scroll;
                 }
             }
             Action::NextHunk => {

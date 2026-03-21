@@ -20,15 +20,21 @@ const VERTICAL_LAYOUT_THRESHOLD: u16 = 56;
 pub struct CommitDetailWidget<'a> {
     commit_lines: Vec<Line<'a>>,
     file_lines: Vec<Line<'a>>,
+    file_scroll: u16,
 }
 
 impl<'a> CommitDetailWidget<'a> {
     pub fn new(app: &App) -> Self {
         let commit_lines = Self::build_commit_lines(app);
         let file_lines = Self::build_file_lines(app);
+        let file_scroll = match &app.mode {
+            AppMode::FileSelect { selected_index, .. } => *selected_index as u16,
+            _ => 0,
+        };
         Self {
             commit_lines,
             file_lines,
+            file_scroll,
         }
     }
 
@@ -271,9 +277,21 @@ impl<'a> Widget for CommitDetailWidget<'a> {
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::DarkGray));
 
+        // Scroll file list so selected file stays visible.
+        // File lines: 2 header lines (summary + blank) + file entries.
+        // Scroll so the selected file is near the middle of the visible area.
+        let visible_height = chunks[1].height.saturating_sub(2); // minus block borders
+        let selected_line = self.file_scroll + 2; // offset for header lines
+        let scroll_y = if visible_height > 0 && selected_line >= visible_height {
+            selected_line - visible_height / 2
+        } else {
+            0
+        };
+
         let right_paragraph = Paragraph::new(self.file_lines)
             .block(right_block)
-            .wrap(Wrap { trim: false });
+            .wrap(Wrap { trim: false })
+            .scroll((scroll_y, 0));
 
         Widget::render(right_paragraph, chunks[1], buf);
     }

@@ -14,6 +14,9 @@ use git2::{
 /// Maximum number of files to display
 const MAX_FILES_TO_DISPLAY: usize = 50;
 
+/// Maximum file size (bytes) to read for line counting; larger files are treated as binary
+const MAX_TEXT_FILE_SIZE: u64 = 10 * 1024 * 1024;
+
 /// File change kind
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileChangeKind {
@@ -501,6 +504,8 @@ impl CommitDiffInfo {
             Ok(meta) if meta.file_type().is_dir() => return Ok(None),
             Ok(meta) if meta.file_type().is_symlink() => return Self::count_symlink_lines(path),
             Ok(meta) if !meta.is_file() => return Ok(None),
+            // Treat very large files as binary to avoid excessive memory usage
+            Ok(meta) if meta.len() > MAX_TEXT_FILE_SIZE => return Ok(None),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Some(0)),
             Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => return Ok(None),
             Err(_) | Ok(_) => {}

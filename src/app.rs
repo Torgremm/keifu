@@ -758,8 +758,11 @@ impl App {
                         self.set_message(format!("Failed to load diff: {e}"));
                     }
                 }
-                // Use the status computed at diff time as the cache key
-                self.uncommitted_cache_key = status;
+                // Use the status computed at diff time as the cache key.
+                // If status retrieval failed (None), fall back to the last known
+                // working tree status to prevent re-triggering diff computation
+                // on every tick.
+                self.uncommitted_cache_key = status.or_else(|| self.working_tree_status.clone());
                 self.uncommitted_diff_loading = false;
                 self.uncommitted_diff_receiver = None;
             }
@@ -805,7 +808,9 @@ impl App {
                     };
                     let diff =
                         CommitDiffInfo::from_working_tree(&repo.repo).map_err(|e| e.to_string());
-                    let status = repo.get_working_tree_status().ok().flatten();
+                    // Errors are treated as None; the receiver falls back to the
+                    // last known working_tree_status to avoid a computation loop.
+                    let status = repo.get_working_tree_status().unwrap_or_default();
                     let _ = tx.send((diff, status));
                 });
             }

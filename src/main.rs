@@ -4,8 +4,8 @@ use anyhow::Result;
 use clap::Parser;
 
 use keifu::{
-    app::App,
-    event::{get_key_event, poll_event},
+    app::{App, AppMode},
+    event::{get_key_event, get_mouse_scroll, poll_event},
     git::configure_git_extensions,
     keybindings::map_key_to_action,
     tui, ui,
@@ -61,6 +61,31 @@ fn main() -> Result<()> {
                     if let Err(e) = app.handle_action(action) {
                         // Show errors in the UI
                         app.show_error(format!("{}", e));
+                    }
+                }
+            } else if let Some(scroll) = get_mouse_scroll(&event) {
+                let is_diff = matches!(app.mode, AppMode::FileDiff { .. });
+                let (action, multiplier) = if is_diff {
+                    // Diff view: 3x scroll speed
+                    let a = if scroll > 0 {
+                        keifu::action::Action::ScrollDown
+                    } else {
+                        keifu::action::Action::ScrollUp
+                    };
+                    (a, 3)
+                } else {
+                    // Normal/other modes: standard graph movement
+                    let a = if scroll > 0 {
+                        keifu::action::Action::MoveDown
+                    } else {
+                        keifu::action::Action::MoveUp
+                    };
+                    (a, 1)
+                };
+                for _ in 0..multiplier {
+                    if let Err(e) = app.handle_action(action.clone()) {
+                        app.show_error(format!("{}", e));
+                        break;
                     }
                 }
             }

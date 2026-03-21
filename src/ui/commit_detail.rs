@@ -8,7 +8,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Widget, Wrap},
 };
 
-use crate::app::App;
+use crate::app::{App, AppMode};
 use crate::git::{CommitDiffInfo, FileChangeKind};
 
 use super::{render_placeholder_block, MIN_WIDGET_HEIGHT, MIN_WIDGET_WIDTH};
@@ -33,10 +33,15 @@ impl<'a> CommitDetailWidget<'a> {
     }
 
     fn build_file_lines(app: &App) -> Vec<Line<'a>> {
+        let selected_file_index = match &app.mode {
+            AppMode::FileSelect { selected_index, .. } => Some(*selected_index),
+            _ => None,
+        };
+
         // Prefer cached data (even if stale) over a loading indicator so that
         // auto-refresh doesn't cause the file list to flicker.
         if let Some(diff) = app.cached_diff() {
-            return Self::build_file_list_lines_from(Some(diff));
+            return Self::build_file_list_lines_from(Some(diff), selected_file_index);
         }
         if app.is_diff_loading() {
             return vec![Line::from(Span::styled(
@@ -44,7 +49,7 @@ impl<'a> CommitDetailWidget<'a> {
                 Style::default().fg(Color::DarkGray),
             ))];
         }
-        Self::build_file_list_lines_from(None)
+        Self::build_file_list_lines_from(None, None)
     }
 
     fn build_commit_lines(app: &App) -> Vec<Line<'a>> {
@@ -135,7 +140,10 @@ impl<'a> CommitDetailWidget<'a> {
         lines
     }
 
-    fn build_file_list_lines_from(diff: Option<&CommitDiffInfo>) -> Vec<Line<'a>> {
+    fn build_file_list_lines_from(
+        diff: Option<&CommitDiffInfo>,
+        selected_file_index: Option<usize>,
+    ) -> Vec<Line<'a>> {
         let mut lines = Vec::new();
 
         let Some(diff) = diff else {
@@ -162,7 +170,9 @@ impl<'a> CommitDetailWidget<'a> {
         lines.push(Line::from(""));
 
         // File list
-        for file in &diff.files {
+        for (idx, file) in diff.files.iter().enumerate() {
+            let is_selected = selected_file_index == Some(idx);
+
             let (indicator, color) = match file.kind {
                 FileChangeKind::Added => ("A", Color::Green),
                 FileChangeKind::Modified => ("M", Color::Yellow),
@@ -197,7 +207,15 @@ impl<'a> CommitDetailWidget<'a> {
                 ));
             }
 
-            lines.push(Line::from(spans));
+            let mut line = Line::from(spans);
+            if is_selected {
+                line = line.style(
+                    Style::default()
+                        .bg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD),
+                );
+            }
+            lines.push(line);
         }
 
         // Truncation message

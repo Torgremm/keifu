@@ -383,10 +383,13 @@ impl App {
         match target {
             DiffTarget::Commit(oid) => self.diff_cache_oid == Some(oid),
             DiffTarget::Uncommitted => {
-                let key_matches_status =
-                    self.uncommitted_cache_key == self.working_tree_status;
-                (self.uncommitted_diff_cache.is_some() && key_matches_status)
-                    || (self.uncommitted_diff_failed && key_matches_status)
+                // A present cache key means the diff was computed and has not
+                // been invalidated by refresh().  Staleness detection is handled
+                // by can_reuse_uncommitted_cache() inside refresh(), which
+                // clears the key when the working tree changes.
+                let has_key = self.uncommitted_cache_key.is_some();
+                has_key
+                    && (self.uncommitted_diff_cache.is_some() || self.uncommitted_diff_failed)
             }
         }
     }
@@ -766,19 +769,15 @@ impl App {
                             self.set_message(format!("Failed to load diff: {e}"));
                         }
                     }
-                    // Use the status computed at diff time as the cache key.
-                    // Also update working_tree_status so that
-                    // has_cached_diff_for_target() sees a consistent snapshot;
-                    // otherwise, if the working tree changed between the last
-                    // refresh() and diff completion, cache_key != working_tree_status
-                    // would cause endless re-computation.
-                    // If status retrieval failed (None), fall back to the last known
-                    // working tree status to prevent re-triggering diff computation
-                    // on every tick.
-                    let resolved_status =
+                    // Use the status snapshot from the diff thread as the cache
+                    // key.  Do NOT overwrite self.working_tree_status here — a
+                    // refresh() may have already observed a newer state, and
+                    // overwriting it would make has_cached_diff_for_target()
+                    // accept a stale diff.  If status retrieval failed (None),
+                    // fall back to the last known working tree status so that
+                    // the cache key is always Some, preventing re-triggering.
+                    self.uncommitted_cache_key =
                         status.or_else(|| self.working_tree_status.clone());
-                    self.uncommitted_cache_key = resolved_status.clone();
-                    self.working_tree_status = resolved_status;
                     self.uncommitted_diff_loading = false;
                     self.uncommitted_diff_receiver = None;
                 }

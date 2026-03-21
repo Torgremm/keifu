@@ -334,9 +334,13 @@ impl CommitDiffInfo {
         let worktree_stats = worktree_diff.stats()?;
         let mut total_insertions = worktree_stats.insertions();
         let mut total_deletions = worktree_stats.deletions();
+        // Build path→delta indexes once to avoid O(n²) repeated scanning
+        let worktree_index = Self::build_delta_index(&worktree_diff);
+        let staged_index = Self::build_delta_index(staged_diff);
         for file in &mut scan.files {
             let use_worktree_diff = worktree_refresh_paths.contains(&file.path);
-            let worktree_path_stats = Self::line_stats_for_path(&worktree_diff, &file.path)?;
+            let worktree_path_stats =
+                Self::line_stats_from_index(&worktree_diff, &worktree_index, &file.path)?;
             let needs_refresh = use_worktree_diff
                 || scan.deferred_paths.contains(&file.path)
                 || refresh_paths.contains(&file.path)
@@ -351,7 +355,8 @@ impl CommitDiffInfo {
                 // Path has no HEAD→workdir diff (e.g. MM/AD where workdir
                 // matches HEAD).  Use the staged (HEAD→index) stats instead
                 // of merge_scans totals to avoid double-counting.
-                let staged = Self::line_stats_for_path(staged_diff, &file.path)?;
+                let staged =
+                    Self::line_stats_from_index(staged_diff, &staged_index, &file.path)?;
                 let (is_binary, insertions, deletions) = staged.unwrap_or((false, 0, 0));
                 file.is_binary = is_binary;
                 file.insertions = insertions;
@@ -409,26 +414,32 @@ impl CommitDiffInfo {
         })
     }
 
-    fn line_stats_for_path(diff: &Diff, path: &Path) -> Result<Option<(bool, usize, usize)>> {
+    /// Build a map from path → delta index for O(1) lookups.
+    fn build_delta_index(diff: &Diff) -> HashMap<PathBuf, (usize, bool)> {
+        let mut index = HashMap::new();
         for (delta_idx, delta) in diff.deltas().enumerate() {
             let Some((_, delta_path, is_binary)) = Self::diff_entry(delta) else {
                 continue;
             };
-
-            if delta_path != path {
-                continue;
-            }
-
-            let (insertions, deletions) = if is_binary {
-                (0, 0)
-            } else {
-                Self::line_stats_for_delta(diff, delta_idx)?
-            };
-
-            return Ok(Some((is_binary, insertions, deletions)));
+            index.insert(delta_path.to_path_buf(), (delta_idx, is_binary));
         }
+        index
+    }
 
-        Ok(None)
+    fn line_stats_from_index(
+        diff: &Diff,
+        delta_index: &HashMap<PathBuf, (usize, bool)>,
+        path: &Path,
+    ) -> Result<Option<(bool, usize, usize)>> {
+        let Some(&(delta_idx, is_binary)) = delta_index.get(path) else {
+            return Ok(None);
+        };
+        let (insertions, deletions) = if is_binary {
+            (0, 0)
+        } else {
+            Self::line_stats_for_delta(diff, delta_idx)?
+        };
+        Ok(Some((is_binary, insertions, deletions)))
     }
 
     fn line_stats_for_delta(diff: &Diff, delta_idx: usize) -> Result<(usize, usize)> {

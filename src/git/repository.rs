@@ -109,7 +109,9 @@ impl GitRepository {
         }
 
         let mut opts = git2::StatusOptions::new();
-        opts.include_untracked(true).include_ignored(false);
+        opts.include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .include_ignored(false);
 
         let statuses = self.repo.statuses(Some(&mut opts))?;
         let workdir = self.repo.workdir().unwrap_or_else(|| self.repo.path());

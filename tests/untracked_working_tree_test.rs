@@ -230,10 +230,14 @@ fn working_tree_status_tracks_nested_untracked_file_changes() {
     let git_repo = GitRepository::open(tempdir.path()).unwrap();
     let initial_status = git_repo.get_working_tree_status().unwrap().unwrap();
 
+    // recurse_untracked_dirs lists individual files, not collapsed dirs
     assert_eq!(initial_status.file_count(), 1);
-    assert_eq!(initial_status.file_paths, vec!["dir/".to_string()]);
-    assert!(initial_status.has_collapsed_untracked_dirs);
-    assert!(!initial_status.is_precise_cache_key());
+    assert_eq!(
+        initial_status.file_paths,
+        vec![std::path::PathBuf::from("dir/sub/file.txt")]
+    );
+    assert!(!initial_status.has_collapsed_untracked_dirs);
+    assert!(initial_status.is_precise_cache_key());
 
     thread::sleep(Duration::from_millis(1100));
     fs::write(&nested_path, "second version\nwith more content\n").unwrap();
@@ -241,8 +245,9 @@ fn working_tree_status_tracks_nested_untracked_file_changes() {
     let updated_status = git_repo.get_working_tree_status().unwrap().unwrap();
 
     assert_eq!(updated_status.file_count(), 1);
-    assert_eq!(updated_status.file_paths, vec!["dir/".to_string()]);
-    assert!(updated_status.has_collapsed_untracked_dirs);
+    assert!(!updated_status.has_collapsed_untracked_dirs);
+    // mtime changed, so status differs from initial
+    assert_ne!(initial_status.mtime_hash, updated_status.mtime_hash);
 }
 
 #[test]

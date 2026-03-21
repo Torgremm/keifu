@@ -767,11 +767,18 @@ impl App {
                         }
                     }
                     // Use the status computed at diff time as the cache key.
+                    // Also update working_tree_status so that
+                    // has_cached_diff_for_target() sees a consistent snapshot;
+                    // otherwise, if the working tree changed between the last
+                    // refresh() and diff completion, cache_key != working_tree_status
+                    // would cause endless re-computation.
                     // If status retrieval failed (None), fall back to the last known
                     // working tree status to prevent re-triggering diff computation
                     // on every tick.
-                    self.uncommitted_cache_key =
+                    let resolved_status =
                         status.or_else(|| self.working_tree_status.clone());
+                    self.uncommitted_cache_key = resolved_status.clone();
+                    self.working_tree_status = resolved_status;
                     self.uncommitted_diff_loading = false;
                     self.uncommitted_diff_receiver = None;
                 }

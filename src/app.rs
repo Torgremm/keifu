@@ -1047,7 +1047,9 @@ impl App {
             }
             Action::EnterFileSelect => {
                 if let Some(diff) = self.cached_diff() {
-                    if !diff.files.is_empty() {
+                    if diff.files.is_empty() {
+                        self.set_message("No changed files in this diff");
+                    } else {
                         let file_list = diff.files.clone();
                         self.mode = AppMode::FileSelect {
                             selected_index: 0,
@@ -1185,7 +1187,7 @@ impl App {
                 {
                     // Find next hunk after current scroll position
                     if let Some(&pos) = hunk_positions.iter().find(|&&p| p > *scroll_offset) {
-                        *scroll_offset = pos;
+                        *scroll_offset = pos.min(max_scroll);
                     }
                 }
             }
@@ -1198,7 +1200,7 @@ impl App {
                 {
                     // Find previous hunk before current scroll position
                     if let Some(&pos) = hunk_positions.iter().rev().find(|&&p| p < *scroll_offset) {
-                        *scroll_offset = pos;
+                        *scroll_offset = pos.min(max_scroll);
                     }
                 }
             }
@@ -1261,17 +1263,8 @@ impl App {
         use crate::ui::file_diff_view::build_highlighted_lines;
 
         let content = self.load_file_diff_content(file_path)?;
-        let rendered_lines = build_highlighted_lines(&content);
+        let (rendered_lines, hunk_positions) = build_highlighted_lines(&content);
         let total_lines = rendered_lines.len();
-
-        // Pre-compute hunk header positions for ] / [ navigation
-        let mut hunk_positions = Vec::new();
-        let mut line_idx = 0;
-        for hunk in &content.hunks {
-            line_idx += 1; // blank line before hunk header
-            hunk_positions.push(line_idx);
-            line_idx += 1 + hunk.lines.len(); // header + content lines
-        }
 
         self.mode = AppMode::FileDiff {
             file_index,
@@ -1300,7 +1293,9 @@ impl App {
         self.mode = AppMode::Normal;
         if self.pending_refresh {
             self.pending_refresh = false;
-            let _ = self.refresh(true);
+            if let Err(e) = self.refresh(true) {
+                self.set_message(format!("Refresh failed: {e}"));
+            }
         }
     }
 

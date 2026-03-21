@@ -142,12 +142,14 @@ fn compute_word_emphasis(
 
 fn highlight_line_owned(hl: &mut HighlightLines, content: &str) -> Vec<(SyntectStyle, String)> {
     let line = format!("{}\n", content);
-    hl.highlight_line(&line, &SYNTAX_SET)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(style, text)| (style, text.trim_end_matches('\n').to_string()))
-        .filter(|(_, text)| !text.is_empty())
-        .collect()
+    match hl.highlight_line(&line, &SYNTAX_SET) {
+        Ok(spans) => spans
+            .into_iter()
+            .map(|(style, text)| (style, text.trim_end_matches('\n').to_string()))
+            .filter(|(_, text)| !text.is_empty())
+            .collect(),
+        Err(_) => vec![(SyntectStyle::default(), content.to_string())],
+    }
 }
 
 /// Map syntect RGB to vivid terminal ANSI colors (like delta/bat's ansi theme).
@@ -361,29 +363,44 @@ fn determine_syntax(path: &std::path::Path) -> &'static SyntaxReference {
 
 // --- Public: pre-compute highlighted lines (called once on mode entry) ---
 
-pub fn build_highlighted_lines(content: &FileDiffContent) -> Vec<Line<'static>> {
+/// Build pre-computed highlighted lines and hunk header positions.
+/// Returns `(rendered_lines, hunk_positions)` so that hunk navigation
+/// positions are always in sync with the actual rendered output.
+pub fn build_highlighted_lines(content: &FileDiffContent) -> (Vec<Line<'static>>, Vec<usize>) {
     if content.is_binary {
-        return vec![Line::from(Span::styled(
-            "(Binary file - no diff available)",
-            Style::default().fg(Color::DarkGray),
-        ))];
+        return (
+            vec![Line::from(Span::styled(
+                "(Binary file - no diff available)",
+                Style::default().fg(Color::DarkGray),
+            ))],
+            Vec::new(),
+        );
     }
 
     if content.hunks.is_empty() {
-        return vec![Line::from(Span::styled(
-            "(No textual changes)",
-            Style::default().fg(Color::DarkGray),
-        ))];
+        return (
+            vec![Line::from(Span::styled(
+                "(No textual changes)",
+                Style::default().fg(Color::DarkGray),
+            ))],
+            Vec::new(),
+        );
     }
 
     let syntax = determine_syntax(&content.path);
-    let theme = &THEME_SET.themes[THEME_NAME];
+    let theme = THEME_SET
+        .themes
+        .get(THEME_NAME)
+        .or_else(|| THEME_SET.themes.values().next())
+        .expect("syntect must have at least one built-in theme");
     let mut lines = Vec::new();
+    let mut hunk_positions = Vec::new();
 
     for hunk in &content.hunks {
         // Blank line before each hunk header for readability
         lines.push(Line::from(""));
 
+        hunk_positions.push(lines.len());
         lines.push(Line::from(Span::styled(
             hunk.header.clone(),
             Style::default()
@@ -440,7 +457,7 @@ pub fn build_highlighted_lines(content: &FileDiffContent) -> Vec<Line<'static>> 
         }
     }
 
-    lines
+    (lines, hunk_positions)
 }
 
 // --- Widget (renders pre-computed lines) ---

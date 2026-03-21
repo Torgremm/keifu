@@ -509,9 +509,14 @@ impl<'a> Widget for FileDiffViewWidget<'a> {
                     .add_modifier(Modifier::BOLD),
             );
 
-        let paragraph = Paragraph::new(self.rendered_lines.to_vec())
-            .block(block)
-            .scroll((self.scroll_offset as u16, 0));
+        // Pre-slice lines to avoid u16 overflow in Paragraph::scroll()
+        // for diffs longer than 65535 lines.
+        let visible_height = area.height.saturating_sub(2) as usize; // minus block borders
+        let start = self.scroll_offset;
+        let end = (start + visible_height + 1).min(self.rendered_lines.len());
+        let visible_lines = &self.rendered_lines[start..end];
+
+        let paragraph = Paragraph::new(visible_lines.to_vec()).block(block);
 
         Widget::render(paragraph, area, buf);
     }

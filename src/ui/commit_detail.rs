@@ -33,13 +33,18 @@ impl<'a> CommitDetailWidget<'a> {
     }
 
     fn build_file_lines(app: &App) -> Vec<Line<'a>> {
+        // Prefer cached data (even if stale) over a loading indicator so that
+        // auto-refresh doesn't cause the file list to flicker.
+        if let Some(diff) = app.cached_diff() {
+            return Self::build_file_list_lines_from(Some(diff));
+        }
         if app.is_diff_loading() {
             return vec![Line::from(Span::styled(
                 "Loading...",
                 Style::default().fg(Color::DarkGray),
             ))];
         }
-        Self::build_file_list_lines_from(app.cached_diff())
+        Self::build_file_list_lines_from(None)
     }
 
     fn build_commit_lines(app: &App) -> Vec<Line<'a>> {

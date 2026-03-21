@@ -321,6 +321,15 @@ impl App {
         self.uncommitted_cache_key = None;
     }
 
+    /// Invalidate the uncommitted diff cache key to trigger a background reload,
+    /// while keeping the cached data visible to avoid UI flicker.
+    fn invalidate_uncommitted_diff_cache(&mut self) {
+        self.uncommitted_diff_failed = false;
+        self.uncommitted_diff_loading = false;
+        self.uncommitted_diff_receiver = None;
+        self.uncommitted_cache_key = None;
+    }
+
     fn can_reuse_uncommitted_cache(
         &self,
         was_uncommitted_selected: bool,
@@ -368,7 +377,8 @@ impl App {
         match target {
             DiffTarget::Commit(oid) => self.diff_cache_oid == Some(oid),
             DiffTarget::Uncommitted => {
-                self.uncommitted_diff_cache.is_some()
+                (self.uncommitted_diff_cache.is_some()
+                    && self.uncommitted_cache_key.is_some())
                     || (self.uncommitted_diff_failed
                         && self.uncommitted_cache_key == self.working_tree_status)
             }
@@ -499,7 +509,9 @@ impl App {
             // 1. Uncommitted node is still selected (was_uncommitted_selected && has_uncommitted_node)
             // 2. The working tree status hasn't changed (same files and mtimes)
             if !self.can_reuse_uncommitted_cache(was_uncommitted_selected, has_uncommitted_node) {
-                self.clear_uncommitted_diff_cache();
+                // Invalidate cache key to trigger a background reload, but keep
+                // the cached data so the UI can keep showing it (no flicker).
+                self.invalidate_uncommitted_diff_cache();
             }
         }
 
@@ -1555,7 +1567,7 @@ mod tests {
     }
 
     #[test]
-    fn refresh_clears_uncommitted_cache_for_collapsed_untracked_directories() {
+    fn refresh_invalidates_uncommitted_cache_key_for_collapsed_untracked_directories() {
         let tempdir = tempfile::tempdir().unwrap();
         let repo = Repository::init(tempdir.path()).unwrap();
         let _oid = commit_file(&repo, "tracked.txt", "tracked\n", "initial");
@@ -1569,7 +1581,9 @@ mod tests {
 
         app.refresh(false).unwrap();
 
-        assert!(app.uncommitted_diff_cache.is_none());
+        // Cache key is cleared to trigger a background reload, but the
+        // cached data is kept so the UI can keep showing it (no flicker).
+        assert!(app.uncommitted_diff_cache.is_some());
         assert!(app.uncommitted_cache_key.is_none());
     }
 

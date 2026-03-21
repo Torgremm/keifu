@@ -1101,8 +1101,7 @@ impl App {
                 }
             }
             Action::OpenFileDiff => {
-                let file_list_snapshot = if let AppMode::FileSelect { file_list, .. } = &self.mode
-                {
+                let file_list_snapshot = if let AppMode::FileSelect { file_list, .. } = &self.mode {
                     file_list.clone()
                 } else {
                     return Ok(());
@@ -1148,7 +1147,8 @@ impl App {
             }
             Action::ScrollPageDown => {
                 if let AppMode::FileDiff { scroll_offset, .. } = &mut self.mode {
-                    *scroll_offset = (*scroll_offset + half_page).min(total_lines.saturating_sub(1));
+                    *scroll_offset =
+                        (*scroll_offset + half_page).min(total_lines.saturating_sub(1));
                 }
             }
             Action::ScrollPageUp => {
@@ -1158,7 +1158,8 @@ impl App {
             }
             Action::PageDown => {
                 if let AppMode::FileDiff { scroll_offset, .. } = &mut self.mode {
-                    *scroll_offset = (*scroll_offset + full_page).min(total_lines.saturating_sub(1));
+                    *scroll_offset =
+                        (*scroll_offset + full_page).min(total_lines.saturating_sub(1));
                 }
             }
             Action::PageUp => {
@@ -1203,12 +1204,11 @@ impl App {
                 }
             }
             Action::NextFile => {
-                let file_list_snapshot =
-                    if let AppMode::FileDiff { file_list, .. } = &self.mode {
-                        file_list.clone()
-                    } else {
-                        return Ok(());
-                    };
+                let file_list_snapshot = if let AppMode::FileDiff { file_list, .. } = &self.mode {
+                    file_list.clone()
+                } else {
+                    return Ok(());
+                };
                 if !file_list_snapshot.is_empty() {
                     let new_index = (file_index + 1) % file_list_snapshot.len();
                     let path = file_list_snapshot[new_index].path.clone();
@@ -1216,12 +1216,11 @@ impl App {
                 }
             }
             Action::PrevFile => {
-                let file_list_snapshot =
-                    if let AppMode::FileDiff { file_list, .. } = &self.mode {
-                        file_list.clone()
-                    } else {
-                        return Ok(());
-                    };
+                let file_list_snapshot = if let AppMode::FileDiff { file_list, .. } = &self.mode {
+                    file_list.clone()
+                } else {
+                    return Ok(());
+                };
                 if !file_list_snapshot.is_empty() {
                     let new_index = if file_index == 0 {
                         file_list_snapshot.len() - 1
@@ -1234,17 +1233,16 @@ impl App {
             }
             Action::Cancel | Action::Quit => {
                 // Return to FileSelect with file_index preserved
-                let (file_index, file_list) =
-                    if let AppMode::FileDiff {
-                        file_index,
-                        file_list,
-                        ..
-                    } = &self.mode
-                    {
-                        (*file_index, file_list.clone())
-                    } else {
-                        return Ok(());
-                    };
+                let (file_index, file_list) = if let AppMode::FileDiff {
+                    file_index,
+                    file_list,
+                    ..
+                } = &self.mode
+                {
+                    (*file_index, file_list.clone())
+                } else {
+                    return Ok(());
+                };
                 self.mode = AppMode::FileSelect {
                     selected_index: file_index,
                     file_list,

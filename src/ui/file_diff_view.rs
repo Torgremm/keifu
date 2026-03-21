@@ -47,8 +47,8 @@ fn group_diff_lines<'a>(lines: &'a [DiffLineContent]) -> Vec<LineGroup<'a>> {
     let mut pending_adds: Vec<&'a DiffLineContent> = Vec::new();
 
     let flush = |groups: &mut Vec<LineGroup<'a>>,
-                     dels: &mut Vec<&'a DiffLineContent>,
-                     adds: &mut Vec<&'a DiffLineContent>| {
+                 dels: &mut Vec<&'a DiffLineContent>,
+                 adds: &mut Vec<&'a DiffLineContent>| {
         if !dels.is_empty() || !adds.is_empty() {
             groups.push(LineGroup::Change {
                 deletions: std::mem::take(dels),
@@ -140,10 +140,7 @@ fn compute_word_emphasis(
 
 // --- Syntax highlighting helpers ---
 
-fn highlight_line_owned(
-    hl: &mut HighlightLines,
-    content: &str,
-) -> Vec<(SyntectStyle, String)> {
+fn highlight_line_owned(hl: &mut HighlightLines, content: &str) -> Vec<(SyntectStyle, String)> {
     let line = format!("{}\n", content);
     hl.highlight_line(&line, &SYNTAX_SET)
         .unwrap_or_default()
@@ -327,10 +324,7 @@ fn make_diff_line(dl: &DiffLineContent, content_spans: Vec<Span<'static>>) -> Li
 }
 
 fn determine_syntax(path: &std::path::Path) -> &'static SyntaxReference {
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
     // Try extension first, then filename
     SYNTAX_SET

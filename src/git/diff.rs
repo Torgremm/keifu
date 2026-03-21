@@ -689,8 +689,7 @@ impl FileDiffContent {
         opts.context_lines(3);
         opts.pathspec(file_path);
 
-        let diff =
-            repo.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
+        let diff = repo.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
 
         Self::from_diff(&diff, file_path)
     }
@@ -700,8 +699,7 @@ impl FileDiffContent {
         let head_tree = match repo.head() {
             Ok(head) => Some(head.peel_to_tree()?),
             Err(err)
-                if err.code() == ErrorCode::UnbornBranch
-                    || err.code() == ErrorCode::NotFound =>
+                if err.code() == ErrorCode::UnbornBranch || err.code() == ErrorCode::NotFound =>
             {
                 None
             }
@@ -727,9 +725,7 @@ impl FileDiffContent {
             let kind = match delta.status() {
                 Delta::Added | Delta::Untracked => FileChangeKind::Added,
                 Delta::Deleted => FileChangeKind::Deleted,
-                Delta::Modified | Delta::Typechange | Delta::Conflicted => {
-                    FileChangeKind::Modified
-                }
+                Delta::Modified | Delta::Typechange | Delta::Conflicted => FileChangeKind::Modified,
                 Delta::Renamed => FileChangeKind::Renamed,
                 Delta::Copied => FileChangeKind::Copied,
                 _ => FileChangeKind::Modified,
@@ -766,7 +762,9 @@ impl FileDiffContent {
 
         for hunk_idx in 0..patch.num_hunks() {
             let (hunk, _) = patch.hunk(hunk_idx)?;
-            let header = String::from_utf8_lossy(hunk.header()).trim_end().to_string();
+            let header = String::from_utf8_lossy(hunk.header())
+                .trim_end()
+                .to_string();
 
             let num_lines = patch.num_lines_in_hunk(hunk_idx)?;
             let mut lines = Vec::with_capacity(num_lines);

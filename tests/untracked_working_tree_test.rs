@@ -413,10 +413,20 @@ fn from_working_tree_keeps_staged_add_removed_in_worktree() {
 
     // AD status: the index still has a staged add, so the file must remain
     // visible to stay consistent with get_working_tree_status() counts.
+    // Stats should reflect only the staged (HEAD→index) change, not the
+    // index→workdir deletion that reverts it.
     let diff = CommitDiffInfo::from_working_tree(&repo).unwrap();
 
     assert_eq!(diff.total_files, 1);
-    assert!(diff.files.iter().any(|f| f.path == Path::new("new.txt")));
+    let file = diff
+        .files
+        .iter()
+        .find(|f| f.path == Path::new("new.txt"))
+        .expect("new.txt should appear in diff");
+    assert_eq!(file.insertions, 1, "AD: only staged add counted");
+    assert_eq!(file.deletions, 0, "AD: workdir deletion not double-counted");
+    assert_eq!(diff.total_insertions, 1);
+    assert_eq!(diff.total_deletions, 0);
 }
 
 #[test]
@@ -434,13 +444,20 @@ fn from_working_tree_keeps_staged_change_reverted_in_worktree() {
     // MM-reverted status: workdir matches HEAD but the index has staged
     // modifications.  The file must stay visible for consistency with the
     // file count reported by get_working_tree_status().
+    // Stats should reflect only the staged (HEAD→index) change, not the
+    // sum of both directions.
     let diff = CommitDiffInfo::from_working_tree(&repo).unwrap();
 
     assert_eq!(diff.total_files, 1);
-    assert!(diff
+    let file = diff
         .files
         .iter()
-        .any(|f| f.path == Path::new("tracked.txt")));
+        .find(|f| f.path == Path::new("tracked.txt"))
+        .expect("tracked.txt should appear in diff");
+    assert_eq!(file.insertions, 1, "MM-reverted: only staged change counted");
+    assert_eq!(file.deletions, 1, "MM-reverted: only staged change counted");
+    assert_eq!(diff.total_insertions, 1);
+    assert_eq!(diff.total_deletions, 1);
 }
 
 #[test]

@@ -118,6 +118,7 @@ impl CommitDiffInfo {
             workdir,
             &refresh_paths,
             &worktree_refresh_paths,
+            &staged_diff,
         )?;
         Self::build_info(scan, Some((total_insertions, total_deletions)))
     }
@@ -321,6 +322,7 @@ impl CommitDiffInfo {
         workdir: &Path,
         refresh_paths: &HashSet<PathBuf>,
         worktree_refresh_paths: &HashSet<PathBuf>,
+        staged_diff: &Diff,
     ) -> Result<(usize, usize)> {
         let mut worktree_opts = DiffOptions::new();
         worktree_opts.ignore_submodules(true);
@@ -347,27 +349,25 @@ impl CommitDiffInfo {
                 worktree_path_stats
             else {
                 // Path has no HEAD→workdir diff (e.g. MM/AD where workdir
-                // matches HEAD).  Keep the file with its merge_scans stats
-                // so that index-only changes remain visible, and include its
-                // stats in the totals which start from worktree_diff.stats().
-                total_insertions += file.insertions;
-                total_deletions += file.deletions;
+                // matches HEAD).  Use the staged (HEAD→index) stats instead
+                // of merge_scans totals to avoid double-counting.
+                let staged = Self::line_stats_for_path(staged_diff, &file.path)?;
+                let (is_binary, insertions, deletions) = staged.unwrap_or((false, 0, 0));
+                file.is_binary = is_binary;
+                file.insertions = insertions;
+                file.deletions = deletions;
+                total_insertions += insertions;
+                total_deletions += deletions;
                 continue;
             };
+            let worktree_stats = (worktree_is_binary, worktree_insertions, worktree_deletions);
             let (is_binary, insertions, deletions) = if use_worktree_diff {
-                match Self::line_stats_for_path(&worktree_diff, &file.path)? {
-                    Some(stats) => Self::fallback_recreated_path_stats(
-                        repo, head_tree, workdir, &file.path, stats,
-                    )?
-                    .unwrap_or((
-                        worktree_is_binary,
-                        worktree_insertions,
-                        worktree_deletions,
-                    )),
-                    None => (worktree_is_binary, worktree_insertions, worktree_deletions),
-                }
+                Self::fallback_recreated_path_stats(
+                    repo, head_tree, workdir, &file.path, worktree_stats,
+                )?
+                .unwrap_or(worktree_stats)
             } else {
-                (worktree_is_binary, worktree_insertions, worktree_deletions)
+                worktree_stats
             };
 
             if insertions != worktree_insertions || deletions != worktree_deletions {

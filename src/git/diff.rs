@@ -363,7 +363,11 @@ impl CommitDiffInfo {
             let worktree_stats = (worktree_is_binary, worktree_insertions, worktree_deletions);
             let (is_binary, insertions, deletions) = if use_worktree_diff {
                 Self::fallback_recreated_path_stats(
-                    repo, head_tree, workdir, &file.path, worktree_stats,
+                    repo,
+                    head_tree,
+                    workdir,
+                    &file.path,
+                    worktree_stats,
                 )?
                 .unwrap_or(worktree_stats)
             } else {

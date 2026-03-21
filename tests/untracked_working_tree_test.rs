@@ -454,7 +454,10 @@ fn from_working_tree_keeps_staged_change_reverted_in_worktree() {
         .iter()
         .find(|f| f.path == Path::new("tracked.txt"))
         .expect("tracked.txt should appear in diff");
-    assert_eq!(file.insertions, 1, "MM-reverted: only staged change counted");
+    assert_eq!(
+        file.insertions, 1,
+        "MM-reverted: only staged change counted"
+    );
     assert_eq!(file.deletions, 1, "MM-reverted: only staged change counted");
     assert_eq!(diff.total_insertions, 1);
     assert_eq!(diff.total_deletions, 1);

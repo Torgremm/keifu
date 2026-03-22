@@ -143,11 +143,19 @@ fn compute_word_emphasis(
 fn highlight_line_owned(hl: &mut HighlightLines, content: &str) -> Vec<(SyntectStyle, String)> {
     let line = format!("{}\n", content);
     match hl.highlight_line(&line, &SYNTAX_SET) {
-        Ok(spans) => spans
-            .into_iter()
-            .map(|(style, text)| (style, text.trim_end_matches('\n').to_string()))
-            .filter(|(_, text)| !text.is_empty())
-            .collect(),
+        Ok(spans) => {
+            let result: Vec<_> = spans
+                .into_iter()
+                .map(|(style, text)| (style, text.trim_end_matches('\n').to_string()))
+                .filter(|(_, text)| !text.is_empty())
+                .collect();
+            // Keep at least one span so diff background color is applied to blank lines
+            if result.is_empty() {
+                vec![(SyntectStyle::default(), String::new())]
+            } else {
+                result
+            }
+        }
         Err(_) => vec![(SyntectStyle::default(), content.to_string())],
     }
 }

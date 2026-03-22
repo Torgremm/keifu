@@ -688,6 +688,7 @@ impl FileDiffContent {
         opts.ignore_submodules(true);
         opts.context_lines(3);
         opts.pathspec(file_path);
+        opts.disable_pathspec_match(true);
 
         let diff = repo.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), Some(&mut opts))?;
 
@@ -710,6 +711,7 @@ impl FileDiffContent {
         opts.ignore_submodules(true);
         opts.context_lines(3);
         opts.pathspec(file_path);
+        opts.disable_pathspec_match(true);
         opts.include_untracked(true);
         opts.recurse_untracked_dirs(true);
         opts.show_untracked_content(true);

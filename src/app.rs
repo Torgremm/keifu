@@ -1264,6 +1264,9 @@ impl App {
     ) -> Result<()> {
         use crate::ui::file_diff_view::build_highlighted_lines;
 
+        // NOTE: Runs synchronously on the UI thread. For very large diffs (e.g. generated
+        // files, large refactors) this may briefly block input. If this becomes a problem,
+        // consider moving to a background task with a loading state, similar to commit diff summaries.
         let content = self.load_file_diff_content(file_path)?;
         let (rendered_lines, hunk_positions) = build_highlighted_lines(&content);
         let total_lines = rendered_lines.len();

@@ -303,7 +303,7 @@ impl App {
         let Some(commit) = self.selected_commit_node() else {
             return Err(anyhow::anyhow!("villainous edgecase"));
         };
-        let Some(commit_info) = &self.diff_cache else {
+        let Some(commit_info) = &self.cached_diff() else {
             return Err(anyhow::anyhow!("villainous edgecase"));
         };
         let patch = FilePatch::extract_diff(&self.repo.repo, commit, commit_info, index)?;

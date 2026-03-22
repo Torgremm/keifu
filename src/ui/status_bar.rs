@@ -137,6 +137,8 @@ impl<'a> Widget for StatusBar<'a> {
                 spans.push(Span::styled("move ", desc_style));
                 spans.push(Span::styled("Esc", key_style));
                 spans.push(Span::styled("Close diff", desc_style));
+                spans.push(Span::styled("[/]", key_style));
+                spans.push(Span::styled("Change file", desc_style));
             }
             AppMode::Help => {
                 spans.push(Span::styled(" Esc/q ", key_style));

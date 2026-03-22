@@ -62,8 +62,6 @@ impl StatefulWidget for DiffView {
             .map(|patch| patch.path.to_string_lossy().into_owned())
             .unwrap_or_else(|| "Diff".to_string());
 
-        let title = format!("{} - {}", title, state.file_index);
-
         let paragraph = Paragraph::new(lines)
             .block(Block::default().borders(Borders::ALL).title(title.as_str()))
             .scroll((state.scroll, 0));

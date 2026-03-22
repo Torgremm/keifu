@@ -8,8 +8,11 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Widget, Wrap},
 };
 
-use crate::app::App;
-use crate::git::{CommitDiffInfo, FileChangeKind};
+use crate::{app::App, ui::diff_popup::DiffViewState};
+use crate::{
+    app::AppMode,
+    git::{CommitDiffInfo, FileChangeKind},
+};
 
 use super::{render_placeholder_block, MIN_WIDGET_HEIGHT, MIN_WIDGET_WIDTH};
 
@@ -39,7 +42,7 @@ impl<'a> CommitDetailWidget<'a> {
                 Style::default().fg(Color::DarkGray),
             ))];
         }
-        Self::build_file_list_lines_from(app.cached_diff())
+        Self::build_file_list_lines_from(app.cached_diff(), &app.diff_view_state, &app.mode)
     }
 
     fn build_commit_lines(app: &App) -> Vec<Line<'a>> {
@@ -127,7 +130,11 @@ impl<'a> CommitDetailWidget<'a> {
         lines
     }
 
-    fn build_file_list_lines_from(diff: Option<&CommitDiffInfo>) -> Vec<Line<'a>> {
+    fn build_file_list_lines_from(
+        diff: Option<&CommitDiffInfo>,
+        inspect_state: &DiffViewState,
+        mode: &AppMode,
+    ) -> Vec<Line<'a>> {
         let mut lines = Vec::new();
 
         let Some(diff) = diff else {
@@ -154,6 +161,7 @@ impl<'a> CommitDetailWidget<'a> {
         lines.push(Line::from(""));
 
         // File list
+        let mut i = 0;
         for file in &diff.files {
             let (indicator, color) = match file.kind {
                 FileChangeKind::Added => ("A", Color::Green),
@@ -164,6 +172,7 @@ impl<'a> CommitDetailWidget<'a> {
             };
 
             let path_str = file.path.to_string_lossy().to_string();
+            let is_selected = i == inspect_state.file_index && *mode == AppMode::Inspect;
 
             let mut spans = vec![
                 Span::styled(format!(" {} ", indicator), Style::default().fg(color)),
@@ -184,7 +193,12 @@ impl<'a> CommitDetailWidget<'a> {
                 ));
             }
 
-            lines.push(Line::from(spans));
+            lines.push(Line::from(spans).style(if is_selected {
+                Style::default().bg(Color::DarkGray)
+            } else {
+                Style::default()
+            }));
+            i += 1;
         }
 
         // Truncation message

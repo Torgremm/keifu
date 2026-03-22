@@ -213,10 +213,17 @@ impl FilePatch {
         info: &CommitDiffInfo,
         index: usize,
     ) -> Result<Self> {
-        let Some(commit_info) = &node.commit else {
+        let commit_info = &node.commit;
+        if commit_info.is_none() && !node.is_uncommitted {
             return Err(anyhow!("No commit selected"));
+        }
+        let commit = match commit_info {
+            Some(info) => repo.find_commit(info.oid)?,
+            None => {
+                let head = repo.head()?.peel_to_commit()?;
+                head
+            }
         };
-
         let file_path = info
             .files
             .get(index)
@@ -224,7 +231,6 @@ impl FilePatch {
             .path
             .clone();
 
-        let commit = repo.find_commit(commit_info.oid)?;
         let new_tree = commit.tree()?;
         let old_tree = if commit.parent_count() > 0 {
             Some(commit.parent(0)?.tree()?)

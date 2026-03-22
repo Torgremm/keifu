@@ -1056,8 +1056,10 @@ impl App {
                             file_list,
                         };
                     }
-                } else {
+                } else if self.is_diff_loading() {
                     self.set_message("Loading diff...");
+                } else {
+                    self.set_message("Diff not available");
                 }
             }
             _ => {}

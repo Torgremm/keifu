@@ -348,16 +348,13 @@ fn make_diff_line(dl: &DiffLineContent, content_spans: Vec<Span<'static>>) -> Li
 }
 
 fn determine_syntax(path: &std::path::Path) -> &'static SyntaxReference {
+    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-    // Try extension first, then filename
+    // Try full filename first (handles Dockerfile, Makefile, etc.), then extension
     SYNTAX_SET
-        .find_syntax_by_extension(ext)
-        .or_else(|| {
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .and_then(|name| SYNTAX_SET.find_syntax_by_extension(name))
-        })
+        .find_syntax_by_extension(file_name)
+        .or_else(|| SYNTAX_SET.find_syntax_by_extension(ext))
         .unwrap_or_else(|| SYNTAX_SET.find_syntax_plain_text())
 }
 

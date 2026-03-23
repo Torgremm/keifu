@@ -184,6 +184,14 @@ fn map_file_diff_mode(key: KeyEvent) -> Option<Action> {
         (KeyModifiers::SHIFT, KeyCode::Char('G')) | (KeyModifiers::NONE, KeyCode::End) => {
             Some(Action::ScrollToBottom)
         }
+        // Horizontal scroll
+        (KeyModifiers::NONE, KeyCode::Char('h')) | (KeyModifiers::NONE, KeyCode::Left) => {
+            Some(Action::ScrollLeft)
+        }
+        (KeyModifiers::NONE, KeyCode::Char('l')) | (KeyModifiers::NONE, KeyCode::Right) => {
+            Some(Action::ScrollRight)
+        }
+        (KeyModifiers::NONE, KeyCode::Char('0')) => Some(Action::ScrollToLineStart),
         // Hunk jump
         (_, KeyCode::Char(']')) => Some(Action::NextHunk),
         (_, KeyCode::Char('[')) => Some(Action::PrevHunk),

@@ -170,12 +170,14 @@ impl<'a> Widget for StatusBar<'a> {
                 spans.push(Span::styled("back", desc_style));
             }
             AppMode::FileDiff { .. } => {
-                spans.push(Span::styled(" j/k ", key_style));
-                spans.push(Span::styled("scroll ", desc_style));
-                spans.push(Span::styled(" ]/[ ", key_style));
-                spans.push(Span::styled("hunk ", desc_style));
                 spans.push(Span::styled(" n/N ", key_style));
                 spans.push(Span::styled("file ", desc_style));
+                spans.push(Span::styled(" ]/[ ", key_style));
+                spans.push(Span::styled("hunk ", desc_style));
+                spans.push(Span::styled(" j/k ", key_style));
+                spans.push(Span::styled("scroll ", desc_style));
+                spans.push(Span::styled(" h/l ", key_style));
+                spans.push(Span::styled("pan ", desc_style));
                 spans.push(Span::styled(" Esc ", key_style));
                 spans.push(Span::styled("back", desc_style));
             }

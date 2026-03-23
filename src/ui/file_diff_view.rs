@@ -475,6 +475,7 @@ pub struct FileDiffViewWidget<'a> {
     content: &'a FileDiffContent,
     rendered_lines: &'a [Line<'static>],
     scroll_offset: usize,
+    horizontal_offset: usize,
     file_position: String,
 }
 
@@ -483,6 +484,7 @@ impl<'a> FileDiffViewWidget<'a> {
         content: &'a FileDiffContent,
         rendered_lines: &'a [Line<'static>],
         scroll_offset: usize,
+        horizontal_offset: usize,
         file_index: usize,
         file_count: usize,
     ) -> Self {
@@ -490,6 +492,7 @@ impl<'a> FileDiffViewWidget<'a> {
             content,
             rendered_lines,
             scroll_offset,
+            horizontal_offset,
             file_position: format!("[{}/{}]", file_index + 1, file_count),
         }
     }
@@ -544,7 +547,10 @@ impl<'a> Widget for FileDiffViewWidget<'a> {
         let end = (start + visible_height + 1).min(self.rendered_lines.len());
         let visible_lines = &self.rendered_lines[start..end];
 
-        let paragraph = Paragraph::new(visible_lines.to_vec()).block(block);
+        let h_offset = self.horizontal_offset.min(u16::MAX as usize) as u16;
+        let paragraph = Paragraph::new(visible_lines.to_vec())
+            .block(block)
+            .scroll((0, h_offset));
 
         Widget::render(paragraph, area, buf);
     }

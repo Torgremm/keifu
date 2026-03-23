@@ -77,6 +77,8 @@ pub enum AppMode {
         rendered_lines: Vec<ratatui::text::Line<'static>>,
         hunk_positions: Vec<usize>,
         scroll_offset: usize,
+        horizontal_offset: usize,
+        max_line_width: usize,
         total_lines: usize,
     },
 }
@@ -221,6 +223,8 @@ pub struct App {
     pending_refresh: bool,
     /// Viewport height for diff scroll calculations (updated during render)
     pub diff_viewport_height: u16,
+    /// Viewport width for diff horizontal scroll calculations (updated during render)
+    pub diff_viewport_width: u16,
 
     // Status message with auto-clear
     message: Option<String>,
@@ -312,6 +316,7 @@ impl App {
             should_quit: false,
             pending_refresh: false,
             diff_viewport_height: 40,
+            diff_viewport_width: 80,
             message: initial_message,
             message_time: initial_message_time,
             fetch_receiver: None,
@@ -1132,6 +1137,7 @@ impl App {
     fn handle_file_diff_action(&mut self, action: Action) -> Result<()> {
         let AppMode::FileDiff {
             total_lines,
+            max_line_width,
             file_index,
             ..
         } = &self.mode
@@ -1139,10 +1145,14 @@ impl App {
             return Ok(());
         };
         let total_lines = *total_lines;
+        let max_line_width = *max_line_width;
         let file_index = *file_index;
         let viewport = self.diff_viewport_height as usize;
         let half_page = (viewport / 2).max(1);
         let max_scroll = total_lines.saturating_sub(viewport);
+        let h_viewport = self.diff_viewport_width as usize;
+        let max_horizontal = max_line_width.saturating_sub(h_viewport);
+        const H_SCROLL_STEP: usize = 4;
 
         match action {
             Action::ScrollDown => {
@@ -1183,6 +1193,30 @@ impl App {
             Action::ScrollToBottom => {
                 if let AppMode::FileDiff { scroll_offset, .. } = &mut self.mode {
                     *scroll_offset = max_scroll;
+                }
+            }
+            Action::ScrollRight => {
+                if let AppMode::FileDiff {
+                    horizontal_offset, ..
+                } = &mut self.mode
+                {
+                    *horizontal_offset = (*horizontal_offset + H_SCROLL_STEP).min(max_horizontal);
+                }
+            }
+            Action::ScrollLeft => {
+                if let AppMode::FileDiff {
+                    horizontal_offset, ..
+                } = &mut self.mode
+                {
+                    *horizontal_offset = horizontal_offset.saturating_sub(H_SCROLL_STEP);
+                }
+            }
+            Action::ScrollToLineStart => {
+                if let AppMode::FileDiff {
+                    horizontal_offset, ..
+                } = &mut self.mode
+                {
+                    *horizontal_offset = 0;
                 }
             }
             Action::NextHunk => {
@@ -1279,6 +1313,7 @@ impl App {
         let content = self.load_file_diff_content(file_path)?;
         let (rendered_lines, hunk_positions) = build_highlighted_lines(&content);
         let total_lines = rendered_lines.len();
+        let max_line_width = rendered_lines.iter().map(|l| l.width()).max().unwrap_or(0);
 
         self.mode = AppMode::FileDiff {
             file_index,
@@ -1287,6 +1322,8 @@ impl App {
             rendered_lines,
             hunk_positions,
             scroll_offset: 0,
+            horizontal_offset: 0,
+            max_line_width,
             total_lines,
         };
         Ok(())
@@ -1723,6 +1760,7 @@ mod tests {
             should_quit: false,
             pending_refresh: false,
             diff_viewport_height: 40,
+            diff_viewport_width: 80,
             message: initial_message,
             message_time: initial_message_time,
             fetch_receiver: None,
@@ -1787,6 +1825,7 @@ mod tests {
             should_quit: false,
             pending_refresh: false,
             diff_viewport_height: 40,
+            diff_viewport_width: 80,
             message: None,
             message_time: None,
             fetch_receiver: None,

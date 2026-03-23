@@ -68,6 +68,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         content,
         rendered_lines,
         scroll_offset,
+        horizontal_offset,
         file_index,
         file_list,
         ..
@@ -78,14 +79,16 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             .constraints([Constraint::Min(0), Constraint::Length(1)])
             .split(area);
 
-        // Update viewport height for scroll calculations (minus borders)
+        // Update viewport dimensions for scroll calculations (minus borders)
         app.diff_viewport_height = vertical[0].height.saturating_sub(2);
+        app.diff_viewport_width = vertical[0].width.saturating_sub(2);
 
         frame.render_widget(
             FileDiffViewWidget::new(
                 content,
                 rendered_lines,
                 *scroll_offset,
+                *horizontal_offset,
                 *file_index,
                 file_list.len(),
             ),

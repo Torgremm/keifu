@@ -808,6 +808,7 @@ impl App {
                         Ok(diff) => {
                             self.uncommitted_diff_cache = Some(diff);
                             self.uncommitted_diff_failed = false;
+                            self.sync_file_list_with_uncommitted_diff();
                         }
                         Err(e) => {
                             self.uncommitted_diff_cache = None;
@@ -1337,6 +1338,59 @@ impl App {
             Some(DiffTarget::Uncommitted) | None => {
                 FileDiffContent::from_working_tree(&self.repo.repo, file_path)
             }
+        }
+    }
+
+    /// Sync the file_list held by FileSelect / FileDiff with the latest
+    /// uncommitted diff cache.  Called right after `uncommitted_diff_cache` is
+    /// updated so that navigation and display stay consistent.
+    fn sync_file_list_with_uncommitted_diff(&mut self) {
+        if self.current_diff_target() != Some(DiffTarget::Uncommitted) {
+            return;
+        }
+
+        let new_files = match &self.uncommitted_diff_cache {
+            Some(diff) => diff.files.clone(),
+            None => return,
+        };
+
+        if new_files.is_empty() {
+            if matches!(
+                self.mode,
+                AppMode::FileSelect { .. } | AppMode::FileDiff { .. }
+            ) {
+                self.mode = AppMode::Normal;
+                self.set_message("No changed files in this diff");
+            }
+            return;
+        }
+
+        match &mut self.mode {
+            AppMode::FileSelect {
+                selected_index,
+                file_list,
+            } => {
+                *file_list = new_files;
+                if *selected_index >= file_list.len() {
+                    *selected_index = file_list.len() - 1;
+                }
+            }
+            AppMode::FileDiff {
+                file_index,
+                file_list,
+                ..
+            } => {
+                let current_path = file_list.get(*file_index).map(|f| f.path.clone());
+                *file_list = new_files;
+                if let Some(path) = current_path {
+                    if let Some(new_idx) = file_list.iter().position(|f| f.path == path) {
+                        *file_index = new_idx;
+                    } else if *file_index >= file_list.len() {
+                        *file_index = file_list.len() - 1;
+                    }
+                }
+            }
+            _ => {}
         }
     }
 

@@ -917,7 +917,13 @@ impl App {
         match self.current_diff_target()? {
             DiffTarget::Commit(oid) if self.diff_cache_oid == Some(oid) => self.diff_cache.as_ref(),
             DiffTarget::Commit(_) => None,
-            DiffTarget::Uncommitted => self.uncommitted_diff_cache.as_ref(),
+            DiffTarget::Uncommitted => {
+                if self.uncommitted_diff_failed {
+                    None
+                } else {
+                    self.uncommitted_diff_cache.as_ref()
+                }
+            }
         }
     }
 
